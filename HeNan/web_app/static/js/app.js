@@ -388,9 +388,9 @@ function getClarity(code) {
 // 产品分类映射
 function getProductCategory(code) {
     const map = {
-        1: '萌趣学堂（教育）',
-        2: '荣耀王国（电竞）',
-        3: '大包（少儿）'
+        1: '教育',
+        2: '电竞',
+        3: '少儿'
     };
     return map[code] || code;
 }

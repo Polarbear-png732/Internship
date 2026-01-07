@@ -388,9 +388,9 @@ function getClarity(code) {
 // 产品分类映射
 function getProductCategory(code) {
     const map = {
-        1: '教育',
-        2: '电竞',
-        3: '少儿'
+        1: '1',
+        2: '2',
+        3: '3'
     };
     return map[code] || code;
 }

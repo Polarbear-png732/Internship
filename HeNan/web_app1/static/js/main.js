@@ -233,23 +233,54 @@ function renderDramaTable(dramas) {
         const rating = props['评分'] || 0;
         const totalEpisodes = props['总集数'] || 0;
         
+        const rowClass = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30';
         return `
-            <tr class="hover:bg-slate-50 transition-colors border-b border-slate-100">
-                <td class="px-6 py-4 text-slate-600 font-medium">${drama.drama_id}</td>
+            <tr class="${rowClass} hover:bg-blue-50/50 transition-all duration-200 border-b border-slate-100 group">
                 <td class="px-6 py-4">
-                    <div class="font-medium text-slate-900">${drama.drama_name}</div>
-                    ${props['推荐语'] ? `<div class="text-xs text-slate-500 mt-1">${props['推荐语']}</div>` : ''}
+                    <div class="flex items-center gap-2">
+                        <div class="w-8 h-8 rounded-md bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm shadow-sm">
+                            ${drama.drama_id}
+                        </div>
+                    </div>
                 </td>
-                <td class="px-6 py-4 text-slate-600 hidden sm:table-cell">${contentType}</td>
-                <td class="px-6 py-4 text-slate-600 hidden sm:table-cell">${totalEpisodes}</td>
+                <td class="px-6 py-4">
+                    <div class="font-semibold text-slate-900 text-base">${drama.drama_name}</div>
+                    ${props['推荐语'] ? `<div class="text-xs text-slate-500 mt-1.5 flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        <span class="italic">${props['推荐语']}</span>
+                    </div>` : ''}
+                </td>
                 <td class="px-6 py-4 hidden sm:table-cell">
-                    ${rating ? `<span class="text-orange-600 font-medium">${rating}</span>` : '<span class="text-slate-400">-</span>'}
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-500">
+                            <rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>
+                        </svg>
+                        ${contentType}
+                    </span>
+                </td>
+                <td class="px-6 py-4 hidden sm:table-cell">
+                    <span class="inline-flex items-center gap-1.5 text-slate-700 font-medium">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-500">
+                            <line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>
+                        </svg>
+                        ${totalEpisodes} 集
+                    </span>
+                </td>
+                <td class="px-6 py-4 hidden sm:table-cell">
+                    ${rating ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gradient-to-r from-orange-100 to-amber-100 text-orange-700 font-semibold text-sm border border-orange-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="text-orange-500">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                        </svg>
+                        ${rating}
+                    </span>` : '<span class="text-slate-400">-</span>'}
                 </td>
                 <td class="px-6 py-4 text-right">
                     <button onclick="viewDramaDetail(${drama.drama_id}, '${drama.drama_name.replace(/'/g, "\\'")}')" 
-                        class="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors">
+                        class="text-blue-600 hover:text-blue-700 font-semibold text-sm inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 px-3.5 py-2 rounded-lg transition-all shadow-sm hover:shadow-md group-hover:scale-105">
                         查看详情
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                             <path d="m9 18 6-6-6-6"/>
                         </svg>
                     </button>
@@ -450,29 +481,70 @@ function showDramaDetailPage(header, episodes) {
         html += '<div class="overflow-x-auto">';
         html += '<table class="w-full text-left border-collapse">';
         html += '<thead>';
-        html += '<tr class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-slate-200">';
-        html += '<th class="px-4 py-3 text-slate-700 font-semibold text-sm">子集ID</th>';
-        html += '<th class="px-4 py-3 text-slate-700 font-semibold text-sm">节目名称</th>';
-        html += '<th class="px-4 py-3 text-slate-700 font-semibold text-sm">集数</th>';
-        html += '<th class="px-4 py-3 text-slate-700 font-semibold text-sm">媒体拉取地址</th>';
-        html += '<th class="px-4 py-3 text-slate-700 font-semibold text-sm">媒体类型</th>';
-        html += '<th class="px-4 py-3 text-slate-700 font-semibold text-sm">编码格式</th>';
-        html += '<th class="px-4 py-3 text-slate-700 font-semibold text-sm">时长</th>';
-        html += '<th class="px-4 py-3 text-slate-700 font-semibold text-sm">文件大小</th>';
+        html += '<tr class="bg-gradient-to-r from-blue-50 to-cyan-50 border-b border-slate-200">';
+        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">子集ID</th>';
+        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">节目名称</th>';
+        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">集数</th>';
+        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">媒体拉取地址</th>';
+        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">媒体类型</th>';
+        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">编码格式</th>';
+        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">时长</th>';
+        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">文件大小</th>';
         html += '</tr>';
         html += '</thead>';
         html += '<tbody class="divide-y divide-slate-100">';
         
         episodes.forEach((episode, index) => {
-            html += `<tr class="hover:bg-gradient-to-r hover:from-indigo-50/50 hover:to-purple-50/50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}">`;
-            html += `<td class="px-4 py-3"><span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 text-white font-bold text-xs shadow-sm">${episode['子集id']}</span></td>`;
-            html += `<td class="px-4 py-3 text-slate-900 font-medium">${episode['节目名称']}</td>`;
-            html += `<td class="px-4 py-3"><span class="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium">第${episode['集数']}集</span></td>`;
-            html += `<td class="px-4 py-3 text-slate-600 max-w-xs truncate font-mono text-xs" title="${episode['媒体拉取地址'] || ''}">${episode['媒体拉取地址'] || '-'}</td>`;
-            html += `<td class="px-4 py-3 text-slate-600">${episode['媒体类型'] || '-'}</td>`;
-            html += `<td class="px-4 py-3 text-slate-600">${episode['编码格式'] || '-'}</td>`;
-            html += `<td class="px-4 py-3 text-slate-600">${episode['时长'] || '-'}</td>`;
-            html += `<td class="px-4 py-3 text-slate-600">${episode['文件大小'] || '-'}</td>`;
+            const rowBg = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30';
+            html += `<tr class="${rowBg} hover:bg-blue-50/50 transition-all duration-200 border-b border-slate-100 group">`;
+            html += `<td class="px-4 py-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white font-bold text-sm shadow-md">
+                        ${episode['子集id']}
+                    </div>
+                </div>
+            </td>`;
+            html += `<td class="px-4 py-3">
+                <div class="font-semibold text-slate-900 text-base">${episode['节目名称']}</div>
+            </td>`;
+            html += `<td class="px-4 py-3">
+                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-100 to-cyan-100 text-blue-700 text-sm font-semibold border border-blue-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>
+                    </svg>
+                    第${episode['集数']}集
+                </span>
+            </td>`;
+            html += `<td class="px-4 py-3 max-w-xs">
+                <div class="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 flex-shrink-0">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                    </svg>
+                    <span class="truncate font-mono text-xs text-slate-600" title="${episode['媒体拉取地址'] || ''}">${episode['媒体拉取地址'] || '-'}</span>
+                </div>
+            </td>`;
+            html += `<td class="px-4 py-3">
+                <span class="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium">${episode['媒体类型'] || '-'}</span>
+            </td>`;
+            html += `<td class="px-4 py-3">
+                <span class="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium">${episode['编码格式'] || '-'}</span>
+            </td>`;
+            html += `<td class="px-4 py-3">
+                <span class="inline-flex items-center gap-1.5 text-slate-700 font-medium text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-500">
+                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    ${episode['时长'] || '-'}
+                </span>
+            </td>`;
+            html += `<td class="px-4 py-3">
+                <span class="inline-flex items-center gap-1.5 text-slate-700 font-medium text-sm">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-500">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" x2="12" y1="22.08" y2="12"/>
+                    </svg>
+                    ${episode['文件大小'] || '-'}
+                </span>
+            </td>`;
             html += '</tr>';
         });
         

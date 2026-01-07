@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>剧集云管家 - 单文件极速版</title>
+    
+    <!-- 1. 引入 Tailwind CSS (样式库) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. 引入 Vue 3 (逻辑库) -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <!-- 3. (已移除) 不需要外部图标库了，改用内置 SVG -->
+
+    <style>
+        /* 自定义滚动条样式 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-900 overflow-hidden h-screen">
+
+    <div id="app" class="flex h-full">
+        
+        <!-- 左侧侧边栏 (深色) -->
+        <div class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col hidden md:flex text-white shrink-0">
+            <div class="p-6">
+                <div class="flex items-center gap-3 font-bold text-xl tracking-tight">
+                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+                        <!-- Logo Icon (SVG) -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>
+                    </div>
+                    剧集云管家
+                </div>
+            </div>
+
+            <nav class="flex-1 px-4 space-y-2 mt-4">
+                <button @click="activeTab = 'users'; currentView = 'list'; selectedUser = null"
+                    :class="['w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200', activeTab === 'users' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white']">
+                    <!-- Users Icon -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                    <span class="font-medium">用户列表</span>
+                </button>
+                <button @click="activeTab = 'settings'"
+                    :class="['w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200', activeTab === 'settings' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white']">
+                    <!-- Settings Icon -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.39a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                    <span class="font-medium">系统设置</span>
+                </button>
+            </nav>
+
+            <div class="p-4 border-t border-slate-800">
+                <button class="flex items-center gap-3 text-slate-400 hover:text-white transition-colors px-4 py-2 w-full">
+                    <!-- Log Out Icon -->
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+                    <span>退出登录</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 移动端顶部栏 -->
+        <div class="md:hidden fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-slate-800 flex items-center px-4 z-40 text-white">
+            <div class="font-bold text-lg">剧集云管家</div>
+        </div>
+
+        <!-- 右侧主内容区 (浅色) -->
+        <div class="flex-1 flex flex-col overflow-hidden relative bg-slate-50">
+            
+            <!-- 顶部 Header -->
+            <header class="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-8 hidden md:flex shadow-sm z-10 shrink-0">
+                <div class="text-sm text-slate-500 font-medium flex items-center gap-2">
+                    <span>{{ activeTab === 'users' ? '用户管理中心' : '系统设置' }}</span>
+                    <span v-if="currentView === 'detail' && selectedUser"> / {{ selectedUser.name }}</span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <div class="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">
+                        GM
+                    </div>
+                </div>
+            </header>
+
+            <!-- 内容滚动区域 -->
+            <main class="flex-1 overflow-auto p-4 md:p-8 pt-20 md:pt-8">
+                
+                <!-- 1. 用户列表视图 -->
+                <div v-if="activeTab === 'users' && currentView === 'list'" class="space-y-6 animate-fade-in">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div>
+                            <h2 class="text-2xl font-bold text-slate-900">用户列表</h2>
+                            <p class="text-slate-500 text-sm mt-1">管理系统用户并查看他们的剧集作品</p>
+                        </div>
+                        <div class="relative">
+                            <!-- Search Icon -->
+                            <div class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            </div>
+                            <input type="text" placeholder="搜索用户..." v-model="searchTerm"
+                                class="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent w-64 shadow-sm transition-all">
+                        </div>
+                    </div>
+
+                    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                        <table class="w-full text-left">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-200">
+                                    <th class="px-6 py-4 text-slate-500 font-semibold text-sm">用户信息</th>
+                                    <th class="px-6 py-4 text-slate-500 font-semibold text-sm hidden sm:table-cell">角色</th>
+                                    <th class="px-6 py-4 text-slate-500 font-semibold text-sm hidden sm:table-cell">状态</th>
+                                    <th class="px-6 py-4 text-slate-500 font-semibold text-sm text-right">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                <tr v-for="user in filteredUsers" :key="user.id" class="hover:bg-slate-50 transition-colors group">
+                                    <td class="px-6 py-4">
+                                        <div class="flex items-center gap-3">
+                                            <img :src="user.avatar" class="w-10 h-10 rounded-full bg-slate-100 border border-slate-200">
+                                            <div>
+                                                <div class="font-medium text-slate-900">{{ user.name }}</div>
+                                                <div class="text-sm text-slate-500">{{ user.email }}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 text-slate-600 hidden sm:table-cell">{{ user.role }}</td>
+                                    <td class="px-6 py-4 hidden sm:table-cell">
+                                        <span :class="['px-2.5 py-0.5 rounded-full text-xs font-medium border', getBadgeClass(user.status)]">
+                                            {{ user.status }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 text-right">
+                                        <button @click="handleUserSelect(user)"
+                                            class="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-all">
+                                            管理剧集 
+                                            <!-- Chevron Right -->
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div v-if="filteredUsers.length === 0" class="p-8 text-center text-slate-500">
+                            未找到匹配的用户
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. 剧集管理视图 -->
+                <div v-if="activeTab === 'users' && currentView === 'detail' && selectedUser" class="space-y-6 animate-slide-in">
+                    <!-- Header -->
+                    <div class="flex items-center gap-4 mb-8">
+                        <button @click="handleBackToUsers"
+                            class="p-2 rounded-full hover:bg-white hover:shadow-sm text-slate-500 hover:text-slate-900 transition-all border border-transparent hover:border-slate-200">
+                            <!-- Arrow Left -->
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+                        </button>
+                        <div>
+                            <h2 class="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                                {{ selectedUser.name }} 的剧集库
+                                <span class="text-sm font-normal text-slate-500 px-2 py-0.5 bg-slate-100 border border-slate-200 rounded-md">ID: {{ selectedUser.id }}</span>
+                            </h2>
+                            <p class="text-slate-500 text-sm mt-1">共发布 {{ currentUserSeries.length }} 部剧集</p>
+                        </div>
+                        <div class="ml-auto">
+                            <button @click="showAddModal = true"
+                                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-md shadow-blue-600/20">
+                                <!-- Plus Icon -->
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                                <span class="hidden sm:inline">新增剧集</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Stats Cards -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                            <div class="text-slate-500 text-sm mb-1">总集数</div>
+                            <div class="text-2xl font-bold text-slate-900">{{ totalEpisodes }}</div>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                            <div class="text-slate-500 text-sm mb-1">平均评分</div>
+                            <div class="text-2xl font-bold text-orange-500 flex items-center gap-2">
+                                {{ averageRating }} 
+                                <!-- Star Icon -->
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                            </div>
+                        </div>
+                        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                            <div class="text-slate-500 text-sm mb-1">活跃状态</div>
+                            <div class="text-2xl font-bold text-green-600">正常</div>
+                        </div>
+                    </div>
+
+                    <!-- Grid -->
+                    <div v-if="currentUserSeries.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        <div v-for="item in currentUserSeries" :key="item.id" 
+                            class="bg-white border border-slate-200 rounded-xl overflow-hidden group hover:border-blue-400 hover:shadow-md transition-all duration-300 shadow-sm">
+                            <div :class="['h-40 bg-gradient-to-br relative p-4 flex flex-col justify-end', getCoverColor(item.cover)]">
+                                <div class="absolute top-4 right-4 bg-white/20 backdrop-blur-md border border-white/30 px-2 py-1 rounded-md text-xs text-white font-medium shadow-sm">
+                                    {{ item.status }}
+                                </div>
+                                <h3 class="text-white font-bold text-lg leading-tight drop-shadow-md">{{ item.title }}</h3>
+                                <div class="text-white/90 text-sm mt-1 flex items-center gap-2 font-medium">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>
+                                    {{ item.episodes }} 集
+                                </div>
+                            </div>
+                            <div class="p-4 flex items-center justify-between">
+                                <div class="flex items-center gap-1 text-orange-500 text-sm font-bold">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                                    {{ item.rating }}
+                                </div>
+                                <div class="flex gap-2">
+                                    <button class="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-700 transition-colors">
+                                        <!-- Edit Icon -->
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                                    </button>
+                                    <button @click="handleDeleteSeries(item.id)" class="p-2 hover:bg-red-50 rounded-lg text-slate-400 hover:text-red-600 transition-colors">
+                                        <!-- Trash Icon -->
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div v-else class="bg-white border border-dashed border-slate-300 rounded-xl p-12 text-center shadow-sm">
+                        <div class="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
+                            <!-- Film Icon -->
+                            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>
+                        </div>
+                        <h3 class="text-lg font-medium text-slate-900 mb-2">暂无剧集</h3>
+                        <p class="text-slate-500 mb-6">该用户尚未发布任何剧集内容。</p>
+                        <button @click="showAddModal = true" class="text-blue-600 hover:text-blue-700 font-medium hover:underline">
+                            立即添加第一部
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 3. 设置页面占位 -->
+                <div v-if="activeTab === 'settings'" class="flex items-center justify-center h-full text-slate-400">
+                    <div class="text-center">
+                        <div class="flex justify-center mb-4 opacity-30">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.39a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </div>
+                        <p>设置功能开发中...</p>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+
+        <!-- Add Modal -->
+        <div v-if="showAddModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div class="bg-white w-full max-w-md rounded-2xl p-6 shadow-2xl animate-fade-in">
+                <h3 class="text-xl font-bold text-slate-900 mb-6">为 {{ selectedUser?.name }} 添加剧集</h3>
+                <form @submit.prevent="handleAddSubmit" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">剧集名称</label>
+                        <input v-model="newSeriesTitle" required type="text" placeholder="例如：流浪地球"
+                            class="w-full bg-white border border-slate-300 rounded-lg px-4 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">集数</label>
+                        <input v-model="newSeriesEps" type="number" placeholder="0"
+                            class="w-full bg-white border border-slate-300 rounded-lg px-4 py-2 text-slate-900 focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div class="flex gap-3 mt-8">
+                        <button type="button" @click="showAddModal = false"
+                            class="flex-1 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors font-medium">取消</button>
+                        <button type="submit"
+                            class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium shadow-lg shadow-blue-600/20">确认添加</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 逻辑代码 -->
+    <script>
+        const { createApp, ref, computed } = Vue;
+
+        createApp({
+            setup() {
+                // --- 数据 ---
+                const users = ref([
+                    { id: 1, name: '张伟', email: 'zhangwei@example.com', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhang', role: '内容创作者', status: 'Active' },
+                    { id: 2, name: '李娜', email: 'lina@example.com', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=lina', role: '导演', status: 'Active' },
+                    { id: 3, name: '王强', email: 'wangqiang@example.com', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=wang', role: '编剧', status: 'Inactive' },
+                    { id: 4, name: '赵敏', email: 'zhaomin@example.com', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=zhao', role: '制片人', status: 'Active' },
+                ]);
+
+                const series = ref([
+                    { id: 101, userId: 1, title: '星际迷航：深空', episodes: 12, rating: 8.5, status: '已完结', cover: 'blue' },
+                    { id: 102, userId: 1, title: '赛博朋克 2077', episodes: 24, rating: 9.1, status: '连载中', cover: 'purple' },
+                    { id: 103, userId: 2, title: '古堡惊魂', episodes: 6, rating: 7.8, status: '制作中', cover: 'red' },
+                    { id: 104, userId: 2, title: '都市传说', episodes: 10, rating: 8.2, status: '已完结', cover: 'yellow' },
+                    { id: 105, userId: 4, title: '大宋风云', episodes: 40, rating: 8.9, status: '连载中', cover: 'green' },
+                ]);
+
+                // --- 状态 ---
+                const activeTab = ref('users');
+                const currentView = ref('list');
+                const selectedUser = ref(null);
+                const searchTerm = ref('');
+                const showAddModal = ref(false);
+                const newSeriesTitle = ref('');
+                const newSeriesEps = ref('');
+
+                // --- 计算属性 ---
+                const filteredUsers = computed(() => {
+                    return users.value.filter(u => 
+                        u.name.toLowerCase().includes(searchTerm.value.toLowerCase()) ||
+                        u.email.toLowerCase().includes(searchTerm.value.toLowerCase())
+                    );
+                });
+
+                const currentUserSeries = computed(() => {
+                    if (!selectedUser.value) return [];
+                    return series.value.filter(s => s.userId === selectedUser.value.id);
+                });
+
+                const totalEpisodes = computed(() => currentUserSeries.value.reduce((acc, curr) => acc + curr.episodes, 0));
+                
+                const averageRating = computed(() => {
+                    if (currentUserSeries.value.length === 0) return 0;
+                    return (currentUserSeries.value.reduce((acc, curr) => acc + curr.rating, 0) / currentUserSeries.value.length).toFixed(1);
+                });
+
+                // --- 方法 ---
+                const handleUserSelect = (user) => {
+                    selectedUser.value = user;
+                    currentView.value = 'detail';
+                };
+
+                const handleBackToUsers = () => {
+                    selectedUser.value = null;
+                    currentView.value = 'list';
+                };
+
+                const handleDeleteSeries = (id) => {
+                    if(confirm('确定要删除这部剧集吗？')) {
+                        series.value = series.value.filter(s => s.id !== id);
+                    }
+                };
+
+                const handleAddSubmit = () => {
+                    const newSeries = {
+                        id: Date.now(),
+                        title: newSeriesTitle.value,
+                        episodes: parseInt(newSeriesEps.value) || 0,
+                        userId: selectedUser.value.id,
+                        rating: 0,
+                        status: '制作中',
+                        cover: ['blue', 'purple', 'red', 'yellow', 'green'][Math.floor(Math.random() * 5)]
+                    };
+                    series.value.unshift(newSeries);
+                    showAddModal.value = false;
+                    newSeriesTitle.value = '';
+                    newSeriesEps.value = '';
+                };
+
+                const getBadgeClass = (status) => {
+                    const map = {
+                        'Active': 'bg-green-100 text-green-700 border-green-200',
+                        'Inactive': 'bg-slate-100 text-slate-500 border-slate-200',
+                    };
+                    return map[status] || 'bg-slate-100 text-slate-600 border-slate-200';
+                };
+
+                const getCoverColor = (color) => {
+                    const map = {
+                        blue: 'from-blue-500 to-indigo-600',
+                        purple: 'from-purple-500 to-pink-600',
+                        red: 'from-red-500 to-orange-600',
+                        yellow: 'from-yellow-400 to-orange-500',
+                        green: 'from-emerald-400 to-teal-600',
+                    };
+                    return map[color] || 'from-slate-500 to-slate-600';
+                };
+
+                return {
+                    users, series, activeTab, currentView, selectedUser, searchTerm, 
+                    showAddModal, newSeriesTitle, newSeriesEps,
+                    filteredUsers, currentUserSeries, totalEpisodes, averageRating,
+                    handleUserSelect, handleBackToUsers, handleDeleteSeries, handleAddSubmit,
+                    getBadgeClass, getCoverColor
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

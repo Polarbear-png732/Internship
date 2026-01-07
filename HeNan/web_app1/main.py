@@ -8,6 +8,8 @@ import json
 import os
 from typing import Optional, List
 from datetime import datetime
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment
 
 app = FastAPI(title="运营管理平台", description="剧集信息管理系统")
 
@@ -60,8 +62,43 @@ async def read_root():
     return FileResponse(str(BASE_DIR / "index.html"))
 
 
+@app.get("/api/customers")
+async def get_customers():
+    """获取客户列表"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 查询所有客户
+        query = """
+            SELECT customer_id, customer_name, customer_code, remark, created_at, updated_at
+            FROM customer
+            ORDER BY created_at DESC
+        """
+        cursor.execute(query)
+        customers = cursor.fetchall()
+        
+        # 为每个客户查询剧集数量
+        for customer in customers:
+            count_query = "SELECT COUNT(*) as count FROM drama_main WHERE customer_id = %s"
+            cursor.execute(count_query, (customer['customer_id'],))
+            result = cursor.fetchone()
+            customer['drama_count'] = result['count'] if result else 0
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "success",
+            "data": customers
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/dramas")
 async def get_dramas(
+    customer_id: Optional[int] = Query(None, description="客户ID"),
     keyword: Optional[str] = Query(None, description="搜索关键词"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(10, ge=1, le=100, description="每页数量")
@@ -72,11 +109,20 @@ async def get_dramas(
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         
         # 构建查询条件
-        where_clause = ""
+        where_conditions = []
         params = []
+        
+        if customer_id:
+            where_conditions.append("customer_id = %s")
+            params.append(customer_id)
+        
         if keyword:
-            where_clause = "WHERE drama_name LIKE %s"
+            where_conditions.append("drama_name LIKE %s")
             params.append(f"%{keyword}%")
+        
+        where_clause = ""
+        if where_conditions:
+            where_clause = "WHERE " + " AND ".join(where_conditions)
         
         # 查询总数
         count_query = f"SELECT COUNT(*) as total FROM drama_main {where_clause}"
@@ -86,7 +132,7 @@ async def get_dramas(
         # 查询数据
         offset = (page - 1) * page_size
         query = f"""
-            SELECT drama_id, drama_name, dynamic_properties, created_at, updated_at
+            SELECT drama_id, customer_id, drama_name, dynamic_properties, created_at, updated_at
             FROM drama_main
             {where_clause}
             ORDER BY created_at DESC
@@ -196,7 +242,7 @@ async def get_drama_episodes(drama_id: int):
                     dynamic_props = json.loads(episode['dynamic_properties'])
             
             episode_data = {
-                '子集id': i,
+                '子集id': episode['episode_id'],
                 '节目名称': episode['episode_name'],
                 '媒体拉取地址': dynamic_props.get('媒体拉取地址', ''),
                 '媒体类型': dynamic_props.get('媒体类型', 0),
@@ -328,7 +374,7 @@ async def export_drama_to_excel(drama_name: str):
         
         # 构建剧头数据
         header_dict = {
-            '剧头id': drama['drama_id'],
+            '剧头id': '',
             '剧集名称': drama['drama_name'],
             '作者列表': dynamic_props.get('作者列表', ''),
             '清晰度': dynamic_props.get('清晰度', 0),
@@ -362,7 +408,7 @@ async def export_drama_to_excel(drama_name: str):
                     dynamic_props_ep = json.loads(episode['dynamic_properties'])
             
             episode_data = {
-                '子集id': i,
+                '子集id': '',
                 '节目名称': episode['episode_name'],
                 '媒体拉取地址': dynamic_props_ep.get('媒体拉取地址', ''),
                 '媒体类型': dynamic_props_ep.get('媒体类型', 0),
@@ -383,8 +429,82 @@ async def export_drama_to_excel(drama_name: str):
         output_file = f"{excel_dir}/{drama_name}_数据.xlsx"
         
         with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-            header_df.to_excel(writer, sheet_name=f'{drama_name}-剧头', index=False)
-            subset_df.to_excel(writer, sheet_name=f'{drama_name}-子集', index=False)
+            header_df.to_excel(writer, sheet_name='剧头', index=False)
+            subset_df.to_excel(writer, sheet_name='子集', index=False)
+            
+            # 获取workbook和worksheets
+            workbook = writer.book
+            
+            # 调整剧头工作表的列宽和文本换行
+            header_sheet = workbook['剧头']
+            # 设置所有行的自动调整行高
+            header_sheet.row_dimensions[1].height = 30  # 表头行高
+            for row_idx in range(2, len(header_df) + 2):
+                header_sheet.row_dimensions[row_idx].height = None  # 数据行自动调整
+            
+            for idx, col in enumerate(header_df.columns, 1):
+                column_letter = get_column_letter(idx)
+                
+                # 计算列名宽度（中文字符按2个字符宽度计算）
+                col_name = str(col)
+                col_name_width = sum(2 if ord(c) > 127 else 1 for c in col_name)
+                
+                # 计算数据最大宽度
+                max_data_width = col_name_width
+                for row_idx, value in enumerate(header_df[col], 2):  # 从第2行开始（第1行是列名）
+                    if value is not None:
+                        value_str = str(value)
+                        data_width = sum(2 if ord(c) > 127 else 1 for c in value_str)
+                        max_data_width = max(max_data_width, data_width)
+                        
+                        # 设置单元格文本换行和居中对齐
+                        cell = header_sheet.cell(row=row_idx, column=idx)
+                        cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
+                
+                # 设置列名单元格文本换行和居中对齐
+                header_cell = header_sheet.cell(row=1, column=idx)
+                header_cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
+                
+                # 根据内容动态设置列宽（不设置上限，完全根据内容）
+                # 中文字符宽度系数为2，英文字符为1，加上适当边距
+                column_width = max(col_name_width, max_data_width) * 1.3 + 3
+                header_sheet.column_dimensions[column_letter].width = column_width
+            
+            # 调整子集工作表的列宽和文本换行
+            subset_sheet = workbook['子集']
+            # 设置所有行的自动调整行高
+            subset_sheet.row_dimensions[1].height = 30  # 表头行高
+            for row_idx in range(2, len(subset_df) + 2):
+                subset_sheet.row_dimensions[row_idx].height = None  # 数据行自动调整
+            
+            for idx, col in enumerate(subset_df.columns, 1):
+                column_letter = get_column_letter(idx)
+                
+                # 计算列名宽度（中文字符按2个字符宽度计算）
+                col_name = str(col)
+                col_name_width = sum(2 if ord(c) > 127 else 1 for c in col_name)
+                
+                # 计算数据最大宽度
+                max_data_width = col_name_width
+                for row_idx, value in enumerate(subset_df[col], 2):  # 从第2行开始（第1行是列名）
+                    if value is not None:
+                        value_str = str(value)
+                        # 计算实际字符宽度（中文字符按2个字符宽度）
+                        data_width = sum(2 if ord(c) > 127 else 1 for c in value_str)
+                        max_data_width = max(max_data_width, data_width)
+                        
+                        # 设置单元格文本换行和居中对齐
+                        cell = subset_sheet.cell(row=row_idx, column=idx)
+                        cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
+                
+                # 设置列名单元格文本换行和居中对齐
+                header_cell = subset_sheet.cell(row=1, column=idx)
+                header_cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
+                
+                # 根据内容动态设置列宽（不设置上限，完全根据内容）
+                # 中文字符宽度系数为2，英文字符为1，加上适当边距
+                column_width = max(col_name_width, max_data_width) * 1.3 + 3
+                subset_sheet.column_dimensions[column_letter].width = column_width
         
         return FileResponse(
             output_file,

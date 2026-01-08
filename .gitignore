@@ -1,0 +1,48 @@
+# ==================== 编辑器/IDE 文件 ====================
+.vscode/         # VS Code 配置
+.idea/          # IntelliJ IDEA
+*.swp           # Vim 交换文件
+*.swo
+
+# ==================== Python 相关 ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ==================== Office 临时文件 ====================
+~$*              # Office 临时文件（您提到的 ~$版本方数据库.xlsx）
+*.tmp
+*.temp
+
+# ==================== 系统文件 ====================
+.DS_Store       # macOS
+Thumbs.db       # Windows
+desktop.ini
+ehthumbs.db
+
+# ==================== 日志和缓存 ====================
+*.log
+*.cache
+*.pid
+*.seed
+*.pid.lock
+
+# ==================== 敏感信息 ====================
+# 包含密码、密钥等的文件
+*.key
+*.pem
+config.ini
+secrets.json
+
+# ==================== 构建产物 ====================
+dist/
+build/
+*.egg-info/
+

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,10 +6,11 @@ import pymysql
 import pandas as pd
 import json
 import os
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment
+from pydantic import BaseModel
 
 app = FastAPI(title="运营管理平台", description="剧集信息管理系统")
 
@@ -350,6 +351,177 @@ async def search_drama_by_name(drama_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/dramas")
+async def create_drama(drama_data: Dict[str, Any] = Body(...)):
+    """创建剧头"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 检查必填字段
+        if '剧集名称' not in drama_data or not drama_data['剧集名称']:
+            conn.close()
+            raise HTTPException(status_code=400, detail="剧集名称不能为空")
+        
+        drama_name = drama_data['剧集名称']
+        customer_id = drama_data.get('customer_id')
+        
+        # 构建dynamic_properties字典
+        dynamic_props = {}
+        
+        # 需要存储到dynamic_properties中的字段
+        dynamic_fields = [
+            '作者列表', '清晰度', '语言', '主演', '内容类型', '上映年份',
+            '关键字', '评分', '推荐语', '总集数', '产品分类', '竖图',
+            '描述', '横图', '版权', '二级分类'
+        ]
+        
+        for field in dynamic_fields:
+            if field in drama_data:
+                dynamic_props[field] = drama_data[field]
+        
+        # 插入数据
+        insert_query = "INSERT INTO drama_main (customer_id, drama_name, dynamic_properties) VALUES (%s, %s, %s)"
+        dynamic_props_json = json.dumps(dynamic_props, ensure_ascii=False) if dynamic_props else None
+        cursor.execute(insert_query, (customer_id, drama_name, dynamic_props_json))
+        conn.commit()
+        
+        new_drama_id = cursor.lastrowid
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "创建成功",
+            "data": {"drama_id": new_drama_id}
+        }
+    except HTTPException:
+        if conn:
+            conn.close()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/dramas/{drama_id}")
+async def delete_drama(drama_id: int):
+    """删除剧头"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 检查剧集是否存在
+        check_query = "SELECT * FROM drama_main WHERE drama_id = %s"
+        cursor.execute(check_query, (drama_id,))
+        drama = cursor.fetchone()
+        
+        if not drama:
+            conn.close()
+            raise HTTPException(status_code=404, detail="剧集不存在")
+        
+        # 删除剧集（外键约束会自动删除关联的子集）
+        delete_query = "DELETE FROM drama_main WHERE drama_id = %s"
+        cursor.execute(delete_query, (drama_id,))
+        conn.commit()
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "删除成功",
+            "data": {"drama_id": drama_id}
+        }
+    except HTTPException:
+        if conn:
+            conn.close()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/dramas/{drama_id}")
+async def update_drama(drama_id: int, drama_data: Dict[str, Any] = Body(...)):
+    """更新剧集信息"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 检查剧集是否存在
+        check_query = "SELECT * FROM drama_main WHERE drama_id = %s"
+        cursor.execute(check_query, (drama_id,))
+        drama = cursor.fetchone()
+        
+        if not drama:
+            conn.close()
+            raise HTTPException(status_code=404, detail="剧集不存在")
+        
+        # 构建dynamic_properties字典
+        dynamic_props = {}
+        
+        # 需要存储到dynamic_properties中的字段
+        dynamic_fields = [
+            '作者列表', '清晰度', '语言', '主演', '内容类型', '上映年份',
+            '关键字', '评分', '推荐语', '总集数', '产品分类', '竖图',
+            '描述', '横图', '版权', '二级分类'
+        ]
+        
+        for field in dynamic_fields:
+            if field in drama_data:
+                dynamic_props[field] = drama_data[field]
+        
+        # 更新drama_name（如果提供）
+        update_fields = []
+        update_values = []
+        
+        if '剧集名称' in drama_data:
+            update_fields.append("drama_name = %s")
+            update_values.append(drama_data['剧集名称'])
+        
+        # 更新dynamic_properties
+        if dynamic_props:
+            update_fields.append("dynamic_properties = %s")
+            update_values.append(json.dumps(dynamic_props, ensure_ascii=False))
+        
+        if not update_fields:
+            conn.close()
+            return {
+                "code": 400,
+                "message": "没有提供要更新的字段",
+                "data": None
+            }
+        
+        # 执行更新
+        update_query = f"UPDATE drama_main SET {', '.join(update_fields)} WHERE drama_id = %s"
+        update_values.append(drama_id)
+        cursor.execute(update_query, update_values)
+        conn.commit()
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "更新成功",
+            "data": {"drama_id": drama_id}
+        }
+    except HTTPException:
+        if conn:
+            conn.close()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/export/{drama_name}")
 async def export_drama_to_excel(drama_name: str):
     """导出剧集数据为Excel文件"""
@@ -514,6 +686,242 @@ async def export_drama_to_excel(drama_name: str):
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 版权方数据 API ====================
+
+@app.get("/api/copyright")
+async def get_copyright_list(
+    keyword: Optional[str] = Query(None, description="搜索关键词"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量")
+):
+    """获取版权方数据列表"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        where_conditions = []
+        params = []
+        
+        if keyword:
+            where_conditions.append("media_name LIKE %s")
+            params.append(f"%{keyword}%")
+        
+        where_clause = ""
+        if where_conditions:
+            where_clause = "WHERE " + " AND ".join(where_conditions)
+        
+        # 查询总数
+        count_query = f"SELECT COUNT(*) as total FROM copyright_content {where_clause}"
+        cursor.execute(count_query, params)
+        total = cursor.fetchone()['total']
+        
+        # 查询数据
+        offset = (page - 1) * page_size
+        query = f"""
+            SELECT * FROM copyright_content
+            {where_clause}
+            ORDER BY id DESC
+            LIMIT %s OFFSET %s
+        """
+        cursor.execute(query, params + [page_size, offset])
+        items = cursor.fetchall()
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "list": items,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": (total + page_size - 1) // page_size
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/copyright/{item_id}")
+async def get_copyright_detail(item_id: int):
+    """获取版权方数据详情"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        query = "SELECT * FROM copyright_content WHERE id = %s"
+        cursor.execute(query, (item_id,))
+        item = cursor.fetchone()
+        
+        conn.close()
+        
+        if not item:
+            raise HTTPException(status_code=404, detail="数据不存在")
+        
+        return {
+            "code": 200,
+            "message": "success",
+            "data": item
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/copyright")
+async def create_copyright(data: Dict[str, Any] = Body(...)):
+    """创建版权方数据"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if 'media_name' not in data or not data['media_name']:
+            raise HTTPException(status_code=400, detail="介质名称不能为空")
+        
+        fields = [
+            'media_name', 'upstream_copyright', 'category_level1', 'category_level1_henan',
+            'category_level2_henan', 'episode_count', 'single_episode_duration', 'total_duration',
+            'production_year', 'production_region', 'language', 'language_henan', 'country',
+            'director', 'screenwriter', 'cast_members', 'recommendation', 'synopsis',
+            'keywords', 'video_quality', 'license_number', 'rating', 'exclusive_status',
+            'copyright_start_date', 'copyright_end_date', 'authorization_region',
+            'authorization_platform', 'cooperation_mode'
+        ]
+        
+        insert_fields = []
+        insert_values = []
+        
+        for field in fields:
+            if field in data and data[field] is not None:
+                insert_fields.append(field)
+                insert_values.append(data[field])
+        
+        if insert_fields:
+            columns = ', '.join(insert_fields)
+            placeholders = ', '.join(['%s'] * len(insert_fields))
+            insert_query = f"INSERT INTO copyright_content ({columns}) VALUES ({placeholders})"
+            cursor.execute(insert_query, insert_values)
+            conn.commit()
+            new_id = cursor.lastrowid
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "创建成功",
+            "data": {"id": new_id}
+        }
+    except HTTPException:
+        if conn:
+            conn.close()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/copyright/{item_id}")
+async def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
+    """更新版权方数据"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 检查是否存在
+        check_query = "SELECT * FROM copyright_content WHERE id = %s"
+        cursor.execute(check_query, (item_id,))
+        item = cursor.fetchone()
+        
+        if not item:
+            conn.close()
+            raise HTTPException(status_code=404, detail="数据不存在")
+        
+        fields = [
+            'media_name', 'upstream_copyright', 'category_level1', 'category_level1_henan',
+            'category_level2_henan', 'episode_count', 'single_episode_duration', 'total_duration',
+            'production_year', 'production_region', 'language', 'language_henan', 'country',
+            'director', 'screenwriter', 'cast_members', 'recommendation', 'synopsis',
+            'keywords', 'video_quality', 'license_number', 'rating', 'exclusive_status',
+            'copyright_start_date', 'copyright_end_date', 'authorization_region',
+            'authorization_platform', 'cooperation_mode'
+        ]
+        
+        update_parts = []
+        update_values = []
+        
+        for field in fields:
+            if field in data:
+                update_parts.append(f"{field} = %s")
+                update_values.append(data[field])
+        
+        if update_parts:
+            update_query = f"UPDATE copyright_content SET {', '.join(update_parts)} WHERE id = %s"
+            update_values.append(item_id)
+            cursor.execute(update_query, update_values)
+            conn.commit()
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "更新成功",
+            "data": {"id": item_id}
+        }
+    except HTTPException:
+        if conn:
+            conn.close()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/copyright/{item_id}")
+async def delete_copyright(item_id: int):
+    """删除版权方数据"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        check_query = "SELECT * FROM copyright_content WHERE id = %s"
+        cursor.execute(check_query, (item_id,))
+        item = cursor.fetchone()
+        
+        if not item:
+            conn.close()
+            raise HTTPException(status_code=404, detail="数据不存在")
+        
+        delete_query = "DELETE FROM copyright_content WHERE id = %s"
+        cursor.execute(delete_query, (item_id,))
+        conn.commit()
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "删除成功",
+            "data": {"id": item_id}
+        }
+    except HTTPException:
+        if conn:
+            conn.close()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
         raise HTTPException(status_code=500, detail=str(e))
 
 

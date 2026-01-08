@@ -59,3 +59,42 @@ CREATE TABLE IF NOT EXISTS customer_field_config (
     FOREIGN KEY (customer_id) REFERENCES customer(customer_id) ON DELETE CASCADE,
     UNIQUE KEY uk_customer_field (customer_id, field_name) COMMENT '客户字段唯一索引'
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT='客户字段配置表';
+
+-- 5. 版权方数据库表：存储版权方内容信息
+CREATE TABLE IF NOT EXISTS copyright_content (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID，自增',
+    serial_number INT COMMENT '序号',
+    upstream_copyright VARCHAR(200) COMMENT '上游版权方',
+    media_name VARCHAR(500) COMMENT '介质名称',
+    category_level1 VARCHAR(100) COMMENT '一级分类',
+    category_level1_henan VARCHAR(100) COMMENT '一级分类-河南标准',
+    category_level2_henan VARCHAR(100) COMMENT '二级分类-河南标准',
+    episode_count INT COMMENT '集数',
+    single_episode_duration DECIMAL(10,2) COMMENT '单集时长',
+    total_duration DECIMAL(10,2) COMMENT '总时长',
+    production_year INT COMMENT '出品年代',
+    authorization_region VARCHAR(200) COMMENT '授权区域（全国/单独沟通）',
+    authorization_platform VARCHAR(200) COMMENT '授权平台（IPTV、OTT、小屏、待沟通）',
+    cooperation_mode VARCHAR(100) COMMENT '合作方式（采买/分成）',
+    production_region VARCHAR(200) COMMENT '制作地区',
+    language VARCHAR(100) COMMENT '语言',
+    language_henan VARCHAR(100) COMMENT '语言-河南标准',
+    country VARCHAR(100) COMMENT '国别',
+    director VARCHAR(500) COMMENT '导演',
+    screenwriter VARCHAR(500) COMMENT '编剧',
+    cast_members TEXT COMMENT '主演/嘉宾/主持人',
+    recommendation TEXT COMMENT '推荐语/一句话介绍',
+    synopsis TEXT COMMENT '简介',
+    keywords VARCHAR(500) COMMENT '关键字',
+    video_quality VARCHAR(100) COMMENT '标清/高清/4K/3D/杜比',
+    license_number VARCHAR(200) COMMENT '发行许可编号/备案号等',
+    rating DECIMAL(3,1) COMMENT '行业内相关网站的评级评分',
+    exclusive_status VARCHAR(50) COMMENT '独家/非独',
+    copyright_start_date VARCHAR(100) COMMENT '版权开始时间',
+    copyright_end_date VARCHAR(100) COMMENT '版权结束时间',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_media_name (media_name(100)) COMMENT '介质名称索引',
+    KEY idx_upstream_copyright (upstream_copyright) COMMENT '上游版权方索引',
+    KEY idx_category (category_level1, category_level1_henan) COMMENT '分类索引'
+) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT='版权方数据库表';

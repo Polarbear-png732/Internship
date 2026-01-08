@@ -1,7 +1,7 @@
 """
-扫描指定文件夹下的视频，输出时长（秒）、大小（KB/MB）。
+扫描指定文件夹下的视频，输出时长（秒）、大小（B/KB/MB）。
 依赖：本机已安装 ffprobe（通常随 ffmpeg 安装）。
-"""
+""" 
 
 import json
 import subprocess

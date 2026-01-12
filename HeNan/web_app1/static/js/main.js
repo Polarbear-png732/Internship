@@ -362,7 +362,14 @@ async function searchDramas() {
     
     try {
         // 使用精确搜索API直接获取剧集详情
-        const response = await fetch(`${API_BASE}/dramas/search/${encodeURIComponent(keyword)}`);
+        const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(keyword)}`);
+        
+        if (!response.ok) {
+            const error = await response.json();
+            showError(error.detail || '未找到该剧集');
+            return;
+        }
+        
         const result = await response.json();
         
         if (result.code === 200 && result.data) {
@@ -669,13 +676,13 @@ function backToDramaList() {
 
 // 导出Excel
 async function exportDrama() {
-    if (!currentDramaName) {
+    if (!currentDramaId) {
         showError('请先选择或查询一个剧集');
         return;
     }
     
     try {
-        const response = await fetch(`${API_BASE}/export/${encodeURIComponent(currentDramaName)}`);
+        const response = await fetch(`${API_BASE}/dramas/${currentDramaId}/export`);
         
         if (response.ok) {
             const blob = await response.blob();
@@ -850,7 +857,14 @@ async function searchDramaHeaders(page = 1) {
     
     try {
         // 使用搜索API直接获取匹配的剧集
-        const response = await fetch(`${API_BASE}/dramas/search/${encodeURIComponent(keyword)}`);
+        const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(keyword)}`);
+        
+        if (!response.ok) {
+            const error = await response.json();
+            showError(error.detail || '未找到匹配的剧集');
+            return;
+        }
+        
         const result = await response.json();
         
         if (result.code === 200 && result.data) {

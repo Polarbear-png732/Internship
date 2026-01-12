@@ -165,6 +165,90 @@ async def get_dramas(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/dramas/by-name")
+async def get_drama_by_name(name: str = Query(..., description="剧集名称")):
+    """根据剧集名称获取剧集详情（包含子集）"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 查询剧头数据
+        query = "SELECT * FROM drama_main WHERE drama_name = %s"
+        cursor.execute(query, (name,))
+        drama = cursor.fetchone()
+        
+        if not drama:
+            conn.close()
+            raise HTTPException(status_code=404, detail="未找到该剧集")
+        
+        # 解析dynamic_properties
+        if drama['dynamic_properties']:
+            if isinstance(drama['dynamic_properties'], str):
+                drama['dynamic_properties'] = json.loads(drama['dynamic_properties'])
+        
+        # 构建完整的剧头数据
+        dynamic_props = drama['dynamic_properties'] or {}
+        header_dict = {
+            '剧头id': drama['drama_id'],
+            '剧集名称': drama['drama_name'],
+            '作者列表': dynamic_props.get('作者列表', ''),
+            '清晰度': dynamic_props.get('清晰度', 0),
+            '语言': dynamic_props.get('语言', ''),
+            '主演': dynamic_props.get('主演', ''),
+            '内容类型': dynamic_props.get('内容类型', ''),
+            '上映年份': dynamic_props.get('上映年份', 0),
+            '关键字': dynamic_props.get('关键字', ''),
+            '评分': dynamic_props.get('评分', 0.0),
+            '推荐语': dynamic_props.get('推荐语', ''),
+            '总集数': dynamic_props.get('总集数', 0),
+            '产品分类': dynamic_props.get('产品分类', 0),
+            '竖图': dynamic_props.get('竖图', ''),
+            '描述': dynamic_props.get('描述', ''),
+            '横图': dynamic_props.get('横图', ''),
+            '版权': dynamic_props.get('版权', 0),
+            '二级分类': dynamic_props.get('二级分类', '')
+        }
+        
+        # 查询子集数据
+        query_episodes = "SELECT * FROM drama_episode WHERE drama_id = %s ORDER BY episode_id"
+        cursor.execute(query_episodes, (drama['drama_id'],))
+        episodes = cursor.fetchall()
+        
+        episode_list = []
+        for i, episode in enumerate(episodes, 1):
+            dynamic_props_ep = {}
+            if episode['dynamic_properties']:
+                if isinstance(episode['dynamic_properties'], str):
+                    dynamic_props_ep = json.loads(episode['dynamic_properties'])
+            
+            episode_data = {
+                '子集id': i,
+                '节目名称': episode['episode_name'],
+                '媒体拉取地址': dynamic_props_ep.get('媒体拉取地址', ''),
+                '媒体类型': dynamic_props_ep.get('媒体类型', 0),
+                '编码格式': dynamic_props_ep.get('编码格式', 0),
+                '集数': dynamic_props_ep.get('集数', 0),
+                '时长': dynamic_props_ep.get('时长', 0),
+                '文件大小': dynamic_props_ep.get('文件大小', 0)
+            }
+            episode_list.append(episode_data)
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "success",
+            "data": {
+                "header": header_dict,
+                "episodes": episode_list
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/dramas/{drama_id}")
 async def get_drama_detail(drama_id: int):
     """获取剧集详细信息"""
@@ -260,92 +344,6 @@ async def get_drama_episodes(drama_id: int):
             "code": 200,
             "message": "success",
             "data": episode_list
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/dramas/search/{drama_name}")
-async def search_drama_by_name(drama_name: str):
-    """根据剧集名称搜索剧集"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(pymysql.cursors.DictCursor)
-        
-        # 查询剧头数据
-        query = "SELECT * FROM drama_main WHERE drama_name = %s"
-        cursor.execute(query, (drama_name,))
-        drama = cursor.fetchone()
-        
-        if not drama:
-            conn.close()
-            return {
-                "code": 404,
-                "message": "未找到该剧集",
-                "data": None
-            }
-        
-        # 解析dynamic_properties
-        if drama['dynamic_properties']:
-            if isinstance(drama['dynamic_properties'], str):
-                drama['dynamic_properties'] = json.loads(drama['dynamic_properties'])
-        
-        # 构建完整的剧头数据
-        dynamic_props = drama['dynamic_properties'] or {}
-        header_dict = {
-            '剧头id': drama['drama_id'],
-            '剧集名称': drama['drama_name'],
-            '作者列表': dynamic_props.get('作者列表', ''),
-            '清晰度': dynamic_props.get('清晰度', 0),
-            '语言': dynamic_props.get('语言', ''),
-            '主演': dynamic_props.get('主演', ''),
-            '内容类型': dynamic_props.get('内容类型', ''),
-            '上映年份': dynamic_props.get('上映年份', 0),
-            '关键字': dynamic_props.get('关键字', ''),
-            '评分': dynamic_props.get('评分', 0.0),
-            '推荐语': dynamic_props.get('推荐语', ''),
-            '总集数': dynamic_props.get('总集数', 0),
-            '产品分类': dynamic_props.get('产品分类', 0),
-            '竖图': dynamic_props.get('竖图', ''),
-            '描述': dynamic_props.get('描述', ''),
-            '横图': dynamic_props.get('横图', ''),
-            '版权': dynamic_props.get('版权', 0),
-            '二级分类': dynamic_props.get('二级分类', '')
-        }
-        
-        # 查询子集数据
-        query_episodes = "SELECT * FROM drama_episode WHERE drama_id = %s ORDER BY episode_id"
-        cursor.execute(query_episodes, (drama['drama_id'],))
-        episodes = cursor.fetchall()
-        
-        episode_list = []
-        for i, episode in enumerate(episodes, 1):
-            dynamic_props_ep = {}
-            if episode['dynamic_properties']:
-                if isinstance(episode['dynamic_properties'], str):
-                    dynamic_props_ep = json.loads(episode['dynamic_properties'])
-            
-            episode_data = {
-                '子集id': i,
-                '节目名称': episode['episode_name'],
-                '媒体拉取地址': dynamic_props_ep.get('媒体拉取地址', ''),
-                '媒体类型': dynamic_props_ep.get('媒体类型', 0),
-                '编码格式': dynamic_props_ep.get('编码格式', 0),
-                '集数': dynamic_props_ep.get('集数', 0),
-                '时长': dynamic_props_ep.get('时长', 0),
-                '文件大小': dynamic_props_ep.get('文件大小', 0)
-            }
-            episode_list.append(episode_data)
-        
-        conn.close()
-        
-        return {
-            "code": 200,
-            "message": "success",
-            "data": {
-                "header": header_dict,
-                "episodes": episode_list
-            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -522,21 +520,23 @@ async def update_drama(drama_id: int, drama_data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/export/{drama_name}")
-async def export_drama_to_excel(drama_name: str):
+@app.get("/api/dramas/{drama_id}/export")
+async def export_drama_to_excel(drama_id: int):
     """导出剧集数据为Excel文件"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         
         # 查询剧头数据
-        query = "SELECT * FROM drama_main WHERE drama_name = %s"
-        cursor.execute(query, (drama_name,))
+        query = "SELECT * FROM drama_main WHERE drama_id = %s"
+        cursor.execute(query, (drama_id,))
         drama = cursor.fetchone()
         
         if not drama:
             conn.close()
             raise HTTPException(status_code=404, detail="剧集不存在")
+        
+        drama_name = drama['drama_name']
         
         # 解析dynamic_properties
         dynamic_props = {}

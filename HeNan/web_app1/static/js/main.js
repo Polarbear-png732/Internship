@@ -1042,92 +1042,6 @@ function updateSelectAllCheckbox() {
     if (selectAll) selectAll.checked = allChecked;
 }
 
-// 打开添加剧头模态框
-function openAddDramaHeaderModal() {
-    // 清空表单
-    document.getElementById('add-drama-name').value = '';
-    // 如果当前有选中的客户，自动填充客户ID
-    document.getElementById('add-customer-id').value = currentCustomerId || '';
-    document.getElementById('add-author-list').value = '';
-    document.getElementById('add-resolution').value = '';
-    document.getElementById('add-language').value = '';
-    document.getElementById('add-actors').value = '';
-    document.getElementById('add-content-type').value = '';
-    document.getElementById('add-release-year').value = '';
-    document.getElementById('add-keywords').value = '';
-    document.getElementById('add-rating').value = '';
-    document.getElementById('add-recommendation').value = '';
-    document.getElementById('add-total-episodes').value = '';
-    document.getElementById('add-product-category').value = '';
-    document.getElementById('add-vertical-image').value = '';
-    document.getElementById('add-description').value = '';
-    document.getElementById('add-horizontal-image').value = '';
-    document.getElementById('add-copyright').value = '';
-    document.getElementById('add-secondary-category').value = '';
-    
-    // 显示模态框
-    document.getElementById('add-header-modal').classList.remove('hidden');
-}
-
-// 关闭添加剧头模态框
-function closeAddDramaHeaderModal() {
-    document.getElementById('add-header-modal').classList.add('hidden');
-}
-
-// 保存添加的剧头
-async function saveAddDramaHeader() {
-    const dramaName = document.getElementById('add-drama-name').value.trim();
-    if (!dramaName) {
-        showError('剧集名称不能为空');
-        return;
-    }
-    
-    // 收集表单数据
-    const formData = {
-        '剧集名称': dramaName,
-        'customer_id': document.getElementById('add-customer-id').value ? parseInt(document.getElementById('add-customer-id').value) : null,
-        '作者列表': document.getElementById('add-author-list').value.trim() || '',
-        '清晰度': document.getElementById('add-resolution').value ? parseInt(document.getElementById('add-resolution').value) : 0,
-        '语言': document.getElementById('add-language').value.trim() || '',
-        '主演': document.getElementById('add-actors').value.trim() || '',
-        '内容类型': document.getElementById('add-content-type').value.trim() || '',
-        '上映年份': document.getElementById('add-release-year').value ? parseInt(document.getElementById('add-release-year').value) : 0,
-        '关键字': document.getElementById('add-keywords').value.trim() || '',
-        '评分': document.getElementById('add-rating').value ? parseFloat(document.getElementById('add-rating').value) : 0.0,
-        '推荐语': document.getElementById('add-recommendation').value.trim() || '',
-        '总集数': document.getElementById('add-total-episodes').value ? parseInt(document.getElementById('add-total-episodes').value) : 0,
-        '产品分类': document.getElementById('add-product-category').value ? parseInt(document.getElementById('add-product-category').value) : 0,
-        '竖图': document.getElementById('add-vertical-image').value.trim() || '',
-        '描述': document.getElementById('add-description').value.trim() || '',
-        '横图': document.getElementById('add-horizontal-image').value.trim() || '',
-        '版权': document.getElementById('add-copyright').value ? parseInt(document.getElementById('add-copyright').value) : 0,
-        '二级分类': document.getElementById('add-secondary-category').value.trim() || ''
-    };
-    
-    try {
-        const response = await fetch(`${API_BASE}/dramas`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(formData)
-        });
-        
-        const result = await response.json();
-        
-        if (result.code === 200) {
-            showSuccess('剧头添加成功！');
-            closeAddDramaHeaderModal();
-            // 重新加载列表（跳转到第一页显示新添加的剧头）
-            await loadAllDramaHeaders(1);
-        } else {
-            showError('添加失败：' + (result.message || '未知错误'));
-        }
-    } catch (error) {
-        showError('添加失败：' + error.message);
-    }
-}
-
 // 编辑剧头
 async function editDramaHeader(dramaId, dramaName) {
     currentDramaId = dramaId;
@@ -1367,7 +1281,7 @@ function renderCopyrightPagination(data) {
 }
 
 // 打开添加版权方数据模态框
-function openAddCopyrightModal() {
+async function openAddCopyrightModal() {
     document.getElementById('copyright-modal-title').innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600">
             <line x1="12" x2="12" y1="5" y2="19"/>
@@ -1377,7 +1291,33 @@ function openAddCopyrightModal() {
     `;
     document.getElementById('copyright-edit-id').value = '';
     document.getElementById('add-copyright-form').reset();
+    
+    // 加载客户列表
+    await loadCustomersForCopyright();
+    
     document.getElementById('add-copyright-modal').classList.remove('hidden');
+}
+
+// 加载客户列表到版权方数据表单
+async function loadCustomersForCopyright() {
+    try {
+        const response = await fetch(`${API_BASE}/customers`);
+        const result = await response.json();
+        
+        if (result.code === 200) {
+            const select = document.getElementById('copyright-customer-id');
+            select.innerHTML = '<option value="">请选择客户</option>';
+            
+            result.data.forEach(customer => {
+                const option = document.createElement('option');
+                option.value = customer.customer_id;
+                option.textContent = customer.customer_name;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载客户列表失败:', error);
+    }
 }
 
 // 关闭添加版权方数据模态框
@@ -1435,13 +1375,20 @@ async function editCopyrightContent(id) {
 async function saveCopyrightContent() {
     const editId = document.getElementById('copyright-edit-id').value;
     const mediaName = document.getElementById('copyright-media-name').value.trim();
+    const customerId = document.getElementById('copyright-customer-id').value;
     
     if (!mediaName) {
         showError('介质名称不能为空');
         return;
     }
     
+    if (!customerId && !editId) {
+        showError('请选择客户');
+        return;
+    }
+    
     const data = {
+        customer_id: customerId ? parseInt(customerId) : null,
         media_name: mediaName,
         upstream_copyright: document.getElementById('copyright-upstream').value.trim() || null,
         category_level1: document.getElementById('copyright-category1').value.trim() || null,
@@ -1453,13 +1400,16 @@ async function saveCopyrightContent() {
         production_year: parseInt(document.getElementById('copyright-production-year').value) || null,
         production_region: document.getElementById('copyright-production-region').value.trim() || null,
         language: document.getElementById('copyright-language').value.trim() || null,
+        language_henan: document.getElementById('copyright-language').value.trim() || null,  // 暂时用 language 字段
         country: document.getElementById('copyright-country').value.trim() || null,
         director: document.getElementById('copyright-director').value.trim() || null,
         screenwriter: document.getElementById('copyright-screenwriter').value.trim() || null,
         rating: parseFloat(document.getElementById('copyright-rating').value) || null,
         exclusive_status: document.getElementById('copyright-exclusive').value.trim() || null,
         cast_members: document.getElementById('copyright-cast').value.trim() || null,
-        synopsis: document.getElementById('copyright-synopsis').value.trim() || null
+        recommendation: null,  // 暂时为空
+        synopsis: document.getElementById('copyright-synopsis').value.trim() || null,
+        keywords: null  // 暂时为空
     };
     
     try {
@@ -1482,7 +1432,7 @@ async function saveCopyrightContent() {
         const result = await response.json();
         
         if (result.code === 200) {
-            showSuccess(editId ? '更新成功！' : '添加成功！');
+            showSuccess(editId ? '更新成功！' : '添加成功！自动创建了剧头和子集数据');
             closeAddCopyrightModal();
             loadCopyrightList(copyrightCurrentPage);
         } else {

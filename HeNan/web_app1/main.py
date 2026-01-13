@@ -1,16 +1,20 @@
 from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import pymysql
 import pandas as pd
 import json
 import os
+import re
+from io import BytesIO
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment
 from pydantic import BaseModel
+from urllib.parse import quote
+from pypinyin import pinyin, Style
 
 app = FastAPI(title="运营管理平台", description="剧集信息管理系统")
 
@@ -595,12 +599,10 @@ async def export_drama_to_excel(drama_id: int):
         
         conn.close()
         
-        # 生成Excel文件
-        excel_dir = "excel"
-        os.makedirs(excel_dir, exist_ok=True)
-        output_file = f"{excel_dir}/{drama_name}_数据.xlsx"
+        # 生成Excel文件到内存
+        output = BytesIO()
         
-        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
             header_df.to_excel(writer, sheet_name='剧头', index=False)
             subset_df.to_excel(writer, sheet_name='子集', index=False)
             
@@ -609,79 +611,61 @@ async def export_drama_to_excel(drama_id: int):
             
             # 调整剧头工作表的列宽和文本换行
             header_sheet = workbook['剧头']
-            # 设置所有行的自动调整行高
-            header_sheet.row_dimensions[1].height = 30  # 表头行高
+            header_sheet.row_dimensions[1].height = 30
             for row_idx in range(2, len(header_df) + 2):
-                header_sheet.row_dimensions[row_idx].height = None  # 数据行自动调整
+                header_sheet.row_dimensions[row_idx].height = None
             
             for idx, col in enumerate(header_df.columns, 1):
                 column_letter = get_column_letter(idx)
-                
-                # 计算列名宽度（中文字符按2个字符宽度计算）
                 col_name = str(col)
                 col_name_width = sum(2 if ord(c) > 127 else 1 for c in col_name)
-                
-                # 计算数据最大宽度
                 max_data_width = col_name_width
-                for row_idx, value in enumerate(header_df[col], 2):  # 从第2行开始（第1行是列名）
+                for row_idx, value in enumerate(header_df[col], 2):
                     if value is not None:
                         value_str = str(value)
                         data_width = sum(2 if ord(c) > 127 else 1 for c in value_str)
                         max_data_width = max(max_data_width, data_width)
-                        
-                        # 设置单元格文本换行和居中对齐
                         cell = header_sheet.cell(row=row_idx, column=idx)
                         cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
-                
-                # 设置列名单元格文本换行和居中对齐
                 header_cell = header_sheet.cell(row=1, column=idx)
                 header_cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
-                
-                # 根据内容动态设置列宽（不设置上限，完全根据内容）
-                # 中文字符宽度系数为2，英文字符为1，加上适当边距
                 column_width = max(col_name_width, max_data_width) * 1.3 + 3
                 header_sheet.column_dimensions[column_letter].width = column_width
             
             # 调整子集工作表的列宽和文本换行
             subset_sheet = workbook['子集']
-            # 设置所有行的自动调整行高
-            subset_sheet.row_dimensions[1].height = 30  # 表头行高
+            subset_sheet.row_dimensions[1].height = 30
             for row_idx in range(2, len(subset_df) + 2):
-                subset_sheet.row_dimensions[row_idx].height = None  # 数据行自动调整
+                subset_sheet.row_dimensions[row_idx].height = None
             
             for idx, col in enumerate(subset_df.columns, 1):
                 column_letter = get_column_letter(idx)
-                
-                # 计算列名宽度（中文字符按2个字符宽度计算）
                 col_name = str(col)
                 col_name_width = sum(2 if ord(c) > 127 else 1 for c in col_name)
-                
-                # 计算数据最大宽度
                 max_data_width = col_name_width
-                for row_idx, value in enumerate(subset_df[col], 2):  # 从第2行开始（第1行是列名）
+                for row_idx, value in enumerate(subset_df[col], 2):
                     if value is not None:
                         value_str = str(value)
-                        # 计算实际字符宽度（中文字符按2个字符宽度）
                         data_width = sum(2 if ord(c) > 127 else 1 for c in value_str)
                         max_data_width = max(max_data_width, data_width)
-                        
-                        # 设置单元格文本换行和居中对齐
                         cell = subset_sheet.cell(row=row_idx, column=idx)
                         cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
-                
-                # 设置列名单元格文本换行和居中对齐
                 header_cell = subset_sheet.cell(row=1, column=idx)
                 header_cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
-                
-                # 根据内容动态设置列宽（不设置上限，完全根据内容）
-                # 中文字符宽度系数为2，英文字符为1，加上适当边距
                 column_width = max(col_name_width, max_data_width) * 1.3 + 3
                 subset_sheet.column_dimensions[column_letter].width = column_width
         
-        return FileResponse(
-            output_file,
+        output.seek(0)
+        
+        # 对中文文件名进行编码
+        encoded_filename = quote(f"{drama_name}_数据.xlsx")
+        
+        return StreamingResponse(
+            output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename=f"{drama_name}_数据.xlsx"
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+            }
         )
     except HTTPException:
         raise
@@ -775,17 +759,130 @@ async def get_copyright_detail(item_id: int):
 
 @app.post("/api/copyright")
 async def create_copyright(data: Dict[str, Any] = Body(...)):
-    """创建版权方数据"""
+    """创建版权方数据，并自动创建对应的剧头和子集"""
     conn = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
         
         if 'media_name' not in data or not data['media_name']:
             raise HTTPException(status_code=400, detail="介质名称不能为空")
         
+        media_name = data['media_name']
+        customer_id = data.get('customer_id')  # 获取客户ID
+        
+        # 1. 先创建剧头数据
+        # 字段映射
+        author_list = data.get('director') or "暂无"
+        language = data.get('language_henan') or data.get('language') or "简体中文"
+        actors = data.get('cast_members') or ""
+        content_type = data.get('category_level1_henan') or "电视剧"
+        release_year = int(data['production_year']) if data.get('production_year') else None
+        keywords = data.get('keywords') or ""
+        rating = float(data['rating']) if data.get('rating') else None
+        recommendation = data.get('recommendation') or ""
+        total_episodes = int(data['episode_count']) if data.get('episode_count') else 0
+        description = data.get('synopsis') or ""
+        secondary_category = data.get('category_level2_henan') or ""
+        
+        # 产品分类：教育=1, 电竞=2, 其他=3
+        product_category = 3
+        if content_type:
+            if "教育" in str(content_type):
+                product_category = 1
+            elif "电竞" in str(content_type):
+                product_category = 2
+        
+        # 生成图片URL（使用剧集名称每个字的汉语拼音首字母）
+        def get_pinyin_abbr(name):
+            result = []
+            for char in name:
+                if '\u4e00' <= char <= '\u9fff':  # 中文字符
+                    py = pinyin(char, style=Style.FIRST_LETTER)
+                    if py and py[0]:
+                        result.append(py[0][0])
+                elif char.isalnum():  # 数字和字母保留
+                    result.append(char.lower())
+            return ''.join(result)
+        
+        abbr = get_pinyin_abbr(media_name)
+        vertical_image = f"http://36.133.168.235:18181/img/{abbr}_st.jpg"
+        horizontal_image = f"http://36.133.168.235:18181/img/{abbr}_ht.jpg"
+        
+        dynamic_props = {
+            '作者列表': author_list,
+            '清晰度': 1,
+            '语言': language,
+            '主演': actors,
+            '内容类型': content_type,
+            '上映年份': release_year,
+            '关键字': keywords,
+            '评分': rating,
+            '推荐语': recommendation,
+            '总集数': total_episodes,
+            '产品分类': product_category,
+            '竖图': vertical_image,
+            '描述': description,
+            '横图': horizontal_image,
+            '版权': 1,
+            '二级分类': secondary_category
+        }
+        
+        drama_insert = "INSERT INTO drama_main (customer_id, drama_name, dynamic_properties) VALUES (%s, %s, %s)"
+        cursor.execute(drama_insert, (customer_id, media_name, json.dumps(dynamic_props, ensure_ascii=False)))
+        conn.commit()
+        new_drama_id = cursor.lastrowid
+        
+        # 2. 创建子集数据
+        if total_episodes > 0:
+            # 确定媒体路径中的目录
+            if "儿童" in str(content_type):
+                content_dir = "shaoer"
+            elif "教育" in str(content_type):
+                content_dir = "mqxt"
+            elif "电竞" in str(content_type):
+                content_dir = "rywg"
+            else:
+                content_dir = "shaoer"
+            
+            for episode_num in range(1, total_episodes + 1):
+                episode_name = f"{media_name}第{episode_num:02d}集"
+                media_url = f"ftp://ftpmediazjyd:rD2q0y1M5eI@36.133.168.235:2121/media/hnyd/{content_dir}/{abbr}/{abbr}{episode_num:03d}.ts"
+                
+                # 从 video_scan_result 表匹配时长和文件大小
+                duration = 0
+                file_size = 0
+                
+                match_query = """
+                    SELECT duration_formatted, size_bytes 
+                    FROM video_scan_result 
+                    WHERE source_file LIKE %s AND file_name LIKE %s
+                    LIMIT 1
+                """
+                cursor.execute(match_query, (f"%{media_name}%", f"%第{episode_num}%"))
+                match_result = cursor.fetchone()
+                
+                if match_result:
+                    duration = match_result['duration_formatted'] if match_result['duration_formatted'] else 0
+                    file_size = int(match_result['size_bytes']) if match_result['size_bytes'] else 0
+                
+                episode_props = {
+                    '媒体拉取地址': media_url,
+                    '媒体类型': 1,
+                    '编码格式': 1,
+                    '集数': episode_num,
+                    '时长': duration,
+                    '文件大小': file_size
+                }
+                
+                episode_insert = "INSERT INTO drama_episode (drama_id, episode_name, dynamic_properties) VALUES (%s, %s, %s)"
+                cursor.execute(episode_insert, (new_drama_id, episode_name, json.dumps(episode_props, ensure_ascii=False)))
+            
+            conn.commit()
+        
+        # 3. 插入版权方数据（包含 drama_id 和 customer_id）
         fields = [
-            'media_name', 'upstream_copyright', 'category_level1', 'category_level1_henan',
+            'drama_id', 'customer_id', 'media_name', 'upstream_copyright', 'category_level1', 'category_level1_henan',
             'category_level2_henan', 'episode_count', 'single_episode_duration', 'total_duration',
             'production_year', 'production_region', 'language', 'language_henan', 'country',
             'director', 'screenwriter', 'cast_members', 'recommendation', 'synopsis',
@@ -794,28 +891,31 @@ async def create_copyright(data: Dict[str, Any] = Body(...)):
             'authorization_platform', 'cooperation_mode'
         ]
         
-        insert_fields = []
-        insert_values = []
+        insert_fields = ['drama_id', 'customer_id']
+        insert_values = [new_drama_id, customer_id]
         
-        for field in fields:
+        for field in fields[2:]:  # 跳过 drama_id 和 customer_id
             if field in data and data[field] is not None:
                 insert_fields.append(field)
                 insert_values.append(data[field])
         
-        if insert_fields:
-            columns = ', '.join(insert_fields)
-            placeholders = ', '.join(['%s'] * len(insert_fields))
-            insert_query = f"INSERT INTO copyright_content ({columns}) VALUES ({placeholders})"
-            cursor.execute(insert_query, insert_values)
-            conn.commit()
-            new_id = cursor.lastrowid
+        columns = ', '.join(insert_fields)
+        placeholders = ', '.join(['%s'] * len(insert_fields))
+        insert_query = f"INSERT INTO copyright_content ({columns}) VALUES ({placeholders})"
+        cursor.execute(insert_query, insert_values)
+        conn.commit()
+        new_copyright_id = cursor.lastrowid
         
         conn.close()
         
         return {
             "code": 200,
             "message": "创建成功",
-            "data": {"id": new_id}
+            "data": {
+                "copyright_id": new_copyright_id,
+                "drama_id": new_drama_id,
+                "episodes_created": total_episodes
+            }
         }
     except HTTPException:
         if conn:
@@ -825,6 +925,7 @@ async def create_copyright(data: Dict[str, Any] = Body(...)):
         if conn:
             conn.rollback()
             conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -889,13 +990,14 @@ async def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
 
 @app.delete("/api/copyright/{item_id}")
 async def delete_copyright(item_id: int):
-    """删除版权方数据"""
+    """删除版权方数据及关联的剧集和子集"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         
-        check_query = "SELECT * FROM copyright_content WHERE id = %s"
+        # 查询版权信息及关联的drama_id
+        check_query = "SELECT id, drama_id FROM copyright_content WHERE id = %s"
         cursor.execute(check_query, (item_id,))
         item = cursor.fetchone()
         
@@ -903,6 +1005,16 @@ async def delete_copyright(item_id: int):
             conn.close()
             raise HTTPException(status_code=404, detail="数据不存在")
         
+        drama_id = item.get('drama_id')
+        
+        # 如果有关联的剧集，先删除子集，再删除剧集
+        if drama_id:
+            # 删除子集
+            cursor.execute("DELETE FROM drama_episode WHERE drama_id = %s", (drama_id,))
+            # 删除剧集
+            cursor.execute("DELETE FROM drama_main WHERE drama_id = %s", (drama_id,))
+        
+        # 删除版权信息
         delete_query = "DELETE FROM copyright_content WHERE id = %s"
         cursor.execute(delete_query, (item_id,))
         conn.commit()
@@ -912,7 +1024,7 @@ async def delete_copyright(item_id: int):
         return {
             "code": 200,
             "message": "删除成功",
-            "data": {"id": item_id}
+            "data": {"id": item_id, "drama_id": drama_id}
         }
     except HTTPException:
         if conn:

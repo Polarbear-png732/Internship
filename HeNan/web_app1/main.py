@@ -928,3 +928,163 @@ async def delete_copyright(item_id: int):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+# ==================== 子集（Episode）API ====================
+
+@app.post("/api/dramas/{drama_id}/episodes")
+async def create_episode(drama_id: int, episode_data: Dict[str, Any] = Body(...)):
+    """创建子集"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 检查剧集是否存在
+        check_query = "SELECT * FROM drama_main WHERE drama_id = %s"
+        cursor.execute(check_query, (drama_id,))
+        drama = cursor.fetchone()
+        
+        if not drama:
+            conn.close()
+            raise HTTPException(status_code=404, detail="剧集不存在")
+        
+        # 检查必填字段
+        if '节目名称' not in episode_data or not episode_data['节目名称']:
+            conn.close()
+            raise HTTPException(status_code=400, detail="节目名称不能为空")
+        
+        episode_name = episode_data['节目名称']
+        
+        # 构建dynamic_properties
+        dynamic_props = {}
+        dynamic_fields = ['媒体拉取地址', '媒体类型', '编码格式', '集数', '时长', '文件大小']
+        
+        for field in dynamic_fields:
+            if field in episode_data:
+                dynamic_props[field] = episode_data[field]
+        
+        # 插入数据
+        insert_query = "INSERT INTO drama_episode (drama_id, episode_name, dynamic_properties) VALUES (%s, %s, %s)"
+        dynamic_props_json = json.dumps(dynamic_props, ensure_ascii=False) if dynamic_props else None
+        cursor.execute(insert_query, (drama_id, episode_name, dynamic_props_json))
+        conn.commit()
+        
+        new_episode_id = cursor.lastrowid
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "创建成功",
+            "data": {"episode_id": new_episode_id}
+        }
+    except HTTPException:
+        if conn:
+            conn.close()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/dramas/{drama_id}/episodes/{episode_id}")
+async def update_episode(drama_id: int, episode_id: int, episode_data: Dict[str, Any] = Body(...)):
+    """更新子集"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 检查子集是否存在
+        check_query = "SELECT * FROM drama_episode WHERE episode_id = %s AND drama_id = %s"
+        cursor.execute(check_query, (episode_id, drama_id))
+        episode = cursor.fetchone()
+        
+        if not episode:
+            conn.close()
+            raise HTTPException(status_code=404, detail="子集不存在")
+        
+        # 构建dynamic_properties
+        dynamic_props = {}
+        dynamic_fields = ['媒体拉取地址', '媒体类型', '编码格式', '集数', '时长', '文件大小']
+        
+        for field in dynamic_fields:
+            if field in episode_data:
+                dynamic_props[field] = episode_data[field]
+        
+        # 更新数据
+        update_fields = []
+        update_values = []
+        
+        if '节目名称' in episode_data:
+            update_fields.append("episode_name = %s")
+            update_values.append(episode_data['节目名称'])
+        
+        if dynamic_props:
+            update_fields.append("dynamic_properties = %s")
+            update_values.append(json.dumps(dynamic_props, ensure_ascii=False))
+        
+        if update_fields:
+            update_query = f"UPDATE drama_episode SET {', '.join(update_fields)} WHERE episode_id = %s"
+            update_values.append(episode_id)
+            cursor.execute(update_query, update_values)
+            conn.commit()
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "更新成功",
+            "data": {"episode_id": episode_id}
+        }
+    except HTTPException:
+        if conn:
+            conn.close()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/dramas/{drama_id}/episodes/{episode_id}")
+async def delete_episode(drama_id: int, episode_id: int):
+    """删除子集"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 检查子集是否存在
+        check_query = "SELECT * FROM drama_episode WHERE episode_id = %s AND drama_id = %s"
+        cursor.execute(check_query, (episode_id, drama_id))
+        episode = cursor.fetchone()
+        
+        if not episode:
+            conn.close()
+            raise HTTPException(status_code=404, detail="子集不存在")
+        
+        # 删除子集
+        delete_query = "DELETE FROM drama_episode WHERE episode_id = %s"
+        cursor.execute(delete_query, (episode_id,))
+        conn.commit()
+        
+        conn.close()
+        
+        return {
+            "code": 200,
+            "message": "删除成功",
+            "data": {"episode_id": episode_id}
+        }
+    except HTTPException:
+        if conn:
+            conn.close()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+            conn.close()
+        raise HTTPException(status_code=500, detail=str(e))

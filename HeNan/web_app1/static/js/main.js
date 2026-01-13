@@ -552,21 +552,29 @@ function showDramaDetailPage(header, episodes) {
     
     html += '</div>';
     
-    // 子集信息卡片
+    // 子集信息卡片（始终显示，即使没有子集）
+    html += '<div class="bg-gradient-to-br from-white to-indigo-50 border border-slate-200 rounded-xl p-6 shadow-lg">';
+    html += '<div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">';
+    html += '<div class="flex items-center gap-3">';
+    html += '<div class="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl shadow-lg">';
+    html += episodes.length;
+    html += '</div>';
+    html += '<div>';
+    html += '<h3 class="text-xl font-bold text-slate-900 flex items-center gap-2">';
+    html += '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-600">';
+    html += '<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>';
+    html += '</svg>子集信息</h3>';
+    html += '<p class="text-sm text-slate-500 mt-1">共 ' + episodes.length + ' 集</p>';
+    html += '</div>';
+    html += '</div>';
+    // 添加子集按钮
+    html += '<button onclick="openAddEpisodeModal()" class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:from-green-600 hover:to-emerald-600 transition-all shadow-md hover:shadow-lg font-medium">';
+    html += '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/></svg>';
+    html += '添加子集';
+    html += '</button>';
+    html += '</div>';
+    
     if (episodes && episodes.length > 0) {
-        html += '<div class="bg-gradient-to-br from-white to-indigo-50 border border-slate-200 rounded-xl p-6 shadow-lg">';
-        html += '<div class="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200">';
-        html += '<div class="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl shadow-lg">';
-        html += episodes.length;
-        html += '</div>';
-        html += '<div>';
-        html += '<h3 class="text-xl font-bold text-slate-900 flex items-center gap-2">';
-        html += '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-600">';
-        html += '<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>';
-        html += '</svg>子集信息</h3>';
-        html += '<p class="text-sm text-slate-500 mt-1">共 ' + episodes.length + ' 集，查看详细信息</p>';
-        html += '</div>';
-        html += '</div>';
         html += '<div class="overflow-x-auto">';
         html += '<table class="w-full text-left border-collapse">';
         html += '<thead>';
@@ -579,6 +587,7 @@ function showDramaDetailPage(header, episodes) {
         html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">编码格式</th>';
         html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">时长</th>';
         html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">文件大小</th>';
+        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm text-center">操作</th>';
         html += '</tr>';
         html += '</thead>';
         html += '<tbody class="divide-y divide-slate-100">';
@@ -634,14 +643,37 @@ function showDramaDetailPage(header, episodes) {
                     ${episode['文件大小'] || '-'}
                 </span>
             </td>`;
+            // 操作按钮
+            html += `<td class="px-4 py-3 text-center">
+                <div class="flex items-center justify-center gap-2">
+                    <button onclick="openEditEpisodeModal(${episode['子集id']}, '${(episode['节目名称'] || '').replace(/'/g, "\\'")}', '${(episode['媒体拉取地址'] || '').replace(/'/g, "\\'")}', ${episode['媒体类型'] || 0}, ${episode['编码格式'] || 0}, ${episode['集数'] || 0}, ${episode['时长'] || 0}, ${episode['文件大小'] || 0})" 
+                        class="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="编辑">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>
+                        </svg>
+                    </button>
+                    <button onclick="deleteEpisode(${episode['子集id']}, '${(episode['节目名称'] || '').replace(/'/g, "\\'")}')" 
+                        class="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors" title="删除">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+                        </svg>
+                    </button>
+                </div>
+            </td>`;
             html += '</tr>';
         });
         
         html += '</tbody>';
         html += '</table>';
         html += '</div>';
+    } else {
+        // 没有子集时显示提示
+        html += '<div class="text-center py-8 text-slate-500">';
+        html += '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mx-auto mb-3 text-slate-300"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>';
+        html += '<p>暂无子集数据，点击上方按钮添加</p>';
         html += '</div>';
     }
+    html += '</div>';
     
     html += '</div>';
     
@@ -1014,7 +1046,8 @@ function updateSelectAllCheckbox() {
 function openAddDramaHeaderModal() {
     // 清空表单
     document.getElementById('add-drama-name').value = '';
-    document.getElementById('add-customer-id').value = '';
+    // 如果当前有选中的客户，自动填充客户ID
+    document.getElementById('add-customer-id').value = currentCustomerId || '';
     document.getElementById('add-author-list').value = '';
     document.getElementById('add-resolution').value = '';
     document.getElementById('add-language').value = '';
@@ -1085,8 +1118,8 @@ async function saveAddDramaHeader() {
         if (result.code === 200) {
             showSuccess('剧头添加成功！');
             closeAddDramaHeaderModal();
-            // 重新加载列表
-            await loadAllDramaHeaders(currentPage);
+            // 重新加载列表（跳转到第一页显示新添加的剧头）
+            await loadAllDramaHeaders(1);
         } else {
             showError('添加失败：' + (result.message || '未知错误'));
         }
@@ -1481,5 +1514,154 @@ async function deleteCopyrightContent(id, mediaName) {
         }
     } catch (error) {
         showError('删除失败：' + error.message);
+    }
+}
+
+
+// ==================== 子集管理功能 ====================
+
+let currentEditEpisodeId = null;
+
+// 打开添加子集模态框
+function openAddEpisodeModal() {
+    if (!currentDramaId) {
+        showError('请先选择一个剧集');
+        return;
+    }
+    
+    // 清空表单
+    document.getElementById('episode-name').value = '';
+    document.getElementById('episode-media-url').value = '';
+    document.getElementById('episode-media-type').value = '';
+    document.getElementById('episode-encoding').value = '';
+    document.getElementById('episode-number').value = '';
+    document.getElementById('episode-duration').value = '';
+    document.getElementById('episode-file-size').value = '';
+    
+    currentEditEpisodeId = null;
+    document.getElementById('episode-modal-title').textContent = '添加子集';
+    document.getElementById('episode-modal').classList.remove('hidden');
+}
+
+// 打开编辑子集模态框
+function openEditEpisodeModal(episodeId, name, mediaUrl, mediaType, encoding, episodeNum, duration, fileSize) {
+    currentEditEpisodeId = episodeId;
+    
+    document.getElementById('episode-name').value = name || '';
+    document.getElementById('episode-media-url').value = mediaUrl || '';
+    document.getElementById('episode-media-type').value = mediaType || '';
+    document.getElementById('episode-encoding').value = encoding || '';
+    document.getElementById('episode-number').value = episodeNum || '';
+    document.getElementById('episode-duration').value = duration || '';
+    document.getElementById('episode-file-size').value = fileSize || '';
+    
+    document.getElementById('episode-modal-title').textContent = '编辑子集';
+    document.getElementById('episode-modal').classList.remove('hidden');
+}
+
+// 关闭子集模态框
+function closeEpisodeModal() {
+    document.getElementById('episode-modal').classList.add('hidden');
+    currentEditEpisodeId = null;
+}
+
+// 保存子集
+async function saveEpisode() {
+    const episodeName = document.getElementById('episode-name').value.trim();
+    if (!episodeName) {
+        showError('节目名称不能为空');
+        return;
+    }
+    
+    const formData = {
+        '节目名称': episodeName,
+        '媒体拉取地址': document.getElementById('episode-media-url').value.trim() || '',
+        '媒体类型': parseInt(document.getElementById('episode-media-type').value) || 0,
+        '编码格式': parseInt(document.getElementById('episode-encoding').value) || 0,
+        '集数': parseInt(document.getElementById('episode-number').value) || 0,
+        '时长': parseInt(document.getElementById('episode-duration').value) || 0,
+        '文件大小': parseInt(document.getElementById('episode-file-size').value) || 0
+    };
+    
+    try {
+        let url = `${API_BASE}/dramas/${currentDramaId}/episodes`;
+        let method = 'POST';
+        
+        if (currentEditEpisodeId) {
+            url = `${API_BASE}/dramas/${currentDramaId}/episodes/${currentEditEpisodeId}`;
+            method = 'PUT';
+        }
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        const result = await response.json();
+        
+        if (result.code === 200) {
+            showSuccess(currentEditEpisodeId ? '子集更新成功！' : '子集添加成功！');
+            closeEpisodeModal();
+            // 重新加载详情页
+            await refreshDramaDetail();
+        } else {
+            showError('操作失败：' + (result.message || '未知错误'));
+        }
+    } catch (error) {
+        showError('操作失败：' + error.message);
+    }
+}
+
+// 删除子集
+async function deleteEpisode(episodeId, episodeName) {
+    if (!confirm(`确定要删除子集"${episodeName}"吗？此操作不可恢复。`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/dramas/${currentDramaId}/episodes/${episodeId}`, {
+            method: 'DELETE'
+        });
+        
+        const result = await response.json();
+        
+        if (result.code === 200) {
+            showSuccess('子集删除成功！');
+            // 重新加载详情页
+            await refreshDramaDetail();
+        } else {
+            showError('删除失败：' + (result.message || '未知错误'));
+        }
+    } catch (error) {
+        showError('删除失败：' + error.message);
+    }
+}
+
+// 刷新剧集详情页
+async function refreshDramaDetail() {
+    if (!currentDramaId) return;
+    
+    try {
+        // 获取剧集详情
+        const response = await fetch(`${API_BASE}/dramas/${currentDramaId}`);
+        const result = await response.json();
+        
+        if (result.code === 200) {
+            const header = result.data;
+            currentDramaData = header;
+            
+            // 获取子集列表
+            const episodesResponse = await fetch(`${API_BASE}/dramas/${currentDramaId}/episodes`);
+            const episodesResult = await episodesResponse.json();
+            const episodes = episodesResult.code === 200 ? episodesResult.data : [];
+            
+            // 重新渲染详情页面
+            showDramaDetailPage(header, episodes);
+        }
+    } catch (error) {
+        showError('刷新失败：' + error.message);
     }
 }

@@ -135,21 +135,6 @@
                                             <span>用户代码</span>
                                         </div>
                                     </th>
-                                    <th class="px-6 py-4 text-slate-700 font-semibold text-sm hidden sm:table-cell">
-                                        <div class="flex items-center gap-2">
-                                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600">
-                                                <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-                                                <path d="M7 3v18"/>
-                                                <path d="M3 7.5h4"/>
-                                                <path d="M3 12h18"/>
-                                                <path d="M3 16.5h4"/>
-                                                <path d="M17 3v18"/>
-                                                <path d="M17 7.5h4"/>
-                                                <path d="M17 16.5h4"/>
-                                            </svg>
-                                            <span>剧集数量</span>
-                                        </div>
-                                    </th>
                                     <th class="px-6 py-4 text-slate-700 font-semibold text-sm text-right">
                                         <span>操作</span>
                                     </th>
@@ -157,87 +142,10 @@
                             </thead>
                             <tbody id="customer-table-body" class="divide-y divide-slate-100">
                                 <tr>
-                                    <td colspan="4" class="px-6 py-8 text-center text-slate-500">加载中...</td>
+                                    <td colspan="3" class="px-6 py-8 text-center text-slate-500">加载中...</td>
                                 </tr>
                             </tbody>
                         </table>
-                    </div>
-                </div>
-
-                <!-- 剧集列表页面 -->
-                <div id="drama-list-page" class="page space-y-6">
-                    <!-- 返回按钮、标题和搜索框（同一行） -->
-                    <div class="flex items-center gap-4 mb-6 flex-wrap">
-                        <button onclick="backToCustomerList()"
-                            class="p-2 rounded-full hover:bg-white hover:shadow-sm text-slate-500 hover:text-slate-900 transition-all border border-transparent hover:border-slate-200 shrink-0">
-                            <!-- Arrow Left -->
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="m12 19-7-7 7-7"/>
-                                <path d="M19 12H5"/>
-                            </svg>
-                        </button>
-                        <div class="flex-1 min-w-0">
-                            <h2 id="drama-list-title" class="text-2xl font-bold text-slate-900">管理剧集</h2>
-                            <p id="drama-list-subtitle" class="text-slate-500 text-sm mt-1">搜索并查看剧集详细信息</p>
-                        </div>
-                        <!-- 搜索框和按钮 -->
-                        <div class="flex items-center gap-3 shrink-0">
-                            <div class="relative w-64">
-                                <!-- Search Icon -->
-                                <div class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <circle cx="11" cy="11" r="8"/>
-                                        <path d="m21 21-4.3-4.3"/>
-                                    </svg>
-                                </div>
-                                <input type="text" id="search-input" placeholder="搜索剧集名称..." 
-                                    onkeypress="if(event.key==='Enter') searchDramas()"
-                                    class="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all">
-                            </div>
-                            <button onclick="searchDramas()" 
-                                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors font-medium shadow-md shadow-blue-600/20 flex items-center gap-2 whitespace-nowrap">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <circle cx="11" cy="11" r="8"/>
-                                    <path d="m21 21-4.3-4.3"/>
-                                </svg>
-                                搜索
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 剧集详情页面 -->
-                <div id="detail-page" class="page space-y-6">
-                    <!-- 返回按钮和标题 -->
-                    <div class="flex items-center gap-4 mb-6">
-                        <button onclick="backToDramaList()"
-                            class="p-2 rounded-full hover:bg-white hover:shadow-sm text-slate-500 hover:text-slate-900 transition-all border border-transparent hover:border-slate-200">
-                            <!-- Arrow Left -->
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="m12 19-7-7 7-7"/>
-                                <path d="M19 12H5"/>
-                            </svg>
-                        </button>
-                        <div class="flex-1">
-                            <h2 id="detail-title" class="text-2xl font-bold text-slate-900">剧集详情</h2>
-                            <p class="text-slate-500 text-sm mt-1">查看剧集完整信息和所有子集</p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <button id="export-btn" onclick="exportDrama()" 
-                                class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors font-medium shadow-md shadow-green-600/20 flex items-center gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                    <polyline points="7 10 12 15 17 10"/>
-                                    <line x1="12" x2="12" y1="15" y2="3"/>
-                                </svg>
-                                导出Excel
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- 详情内容 -->
-                    <div id="detail-body">
-                        <!-- 详情内容将显示在这里 -->
                     </div>
                 </div>
 
@@ -246,7 +154,7 @@
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div>
                             <h2 class="text-2xl font-bold text-slate-900">剧头管理</h2>
-                            <p class="text-slate-500 text-sm mt-1">管理所有剧集的基本信息</p>
+                            <p class="text-slate-500 text-sm mt-1">搜索剧集名称查看详细信息</p>
                         </div>
                     </div>
 
@@ -260,11 +168,11 @@
                                     <path d="m21 21-4.3-4.3"/>
                                 </svg>
                             </div>
-                            <input type="text" id="header-search-input" placeholder="搜索剧集名称..." 
-                                onkeypress="if(event.key==='Enter') searchDramaHeaders()"
+                            <input type="text" id="header-search-input" placeholder="输入剧集名称搜索..." 
+                                onkeypress="if(event.key==='Enter') searchDramaHeaderDirect()"
                                 class="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all">
                         </div>
-                        <button onclick="searchDramaHeaders()" 
+                        <button onclick="searchDramaHeaderDirect()" 
                             class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors font-medium shadow-md shadow-blue-600/20 flex items-center gap-2 whitespace-nowrap">
                             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="11" cy="11" r="8"/>
@@ -274,29 +182,9 @@
                         </button>
                     </div>
 
-                    <!-- 剧头列表表格 -->
-                    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                        <table class="w-full text-left">
-                            <thead>
-                                <tr class="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-slate-200">
-                                    <th class="px-6 py-4 text-slate-700 font-semibold text-sm">剧集ID</th>
-                                    <th class="px-6 py-4 text-slate-700 font-semibold text-sm">剧集名称</th>
-                                    <th class="px-6 py-4 text-slate-700 font-semibold text-sm hidden md:table-cell">作者列表</th>
-                                    <th class="px-6 py-4 text-slate-700 font-semibold text-sm hidden lg:table-cell">内容类型</th>
-                                    <th class="px-6 py-4 text-slate-700 font-semibold text-sm hidden lg:table-cell">总集数</th>
-                                    <th class="px-6 py-4 text-slate-700 font-semibold text-sm hidden lg:table-cell">评分</th>
-                                    <th class="px-6 py-4 text-slate-700 font-semibold text-sm text-right">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="drama-header-table-body" class="divide-y divide-slate-100">
-                                <tr>
-                                    <td colspan="7" class="px-6 py-8 text-center text-slate-500">加载中...</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                        <div id="header-pagination" class="p-4 border-t border-slate-200 flex justify-center items-center gap-2">
-                            <!-- 分页控件 -->
-                        </div>
+                    <!-- 搜索结果直接显示区域 -->
+                    <div id="header-search-result" class="hidden">
+                        <!-- 搜索结果将显示在这里 -->
                     </div>
                 </div>
 
@@ -564,13 +452,6 @@
                 <form id="add-copyright-form" class="space-y-4">
                     <input type="hidden" id="copyright-edit-id" value="">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">客户 <span class="text-red-500">*</span></label>
-                            <select id="copyright-customer-id" required
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">请选择客户</option>
-                            </select>
-                        </div>
                         <div>
                             <label class="block text-sm font-medium text-slate-700 mb-1">介质名称 <span class="text-red-500">*</span></label>
                             <input type="text" id="copyright-media-name" required

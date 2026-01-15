@@ -769,9 +769,8 @@ async def create_copyright(data: Dict[str, Any] = Body(...)):
             raise HTTPException(status_code=400, detail="介质名称不能为空")
         
         media_name = data['media_name']
-        customer_id = data.get('customer_id')  # 获取客户ID
         
-        # 1. 先创建剧头数据
+        # 1. 先创建剧头数据（不关联特定用户，所有省份都能查到）
         # 字段映射
         author_list = data.get('director') or "暂无"
         language = data.get('language_henan') or data.get('language') or "简体中文"
@@ -828,8 +827,9 @@ async def create_copyright(data: Dict[str, Any] = Body(...)):
             '二级分类': secondary_category
         }
         
-        drama_insert = "INSERT INTO drama_main (customer_id, drama_name, dynamic_properties) VALUES (%s, %s, %s)"
-        cursor.execute(drama_insert, (customer_id, media_name, json.dumps(dynamic_props, ensure_ascii=False)))
+        # customer_id 设为 NULL，所有省份都能查到
+        drama_insert = "INSERT INTO drama_main (customer_id, drama_name, dynamic_properties) VALUES (NULL, %s, %s)"
+        cursor.execute(drama_insert, (media_name, json.dumps(dynamic_props, ensure_ascii=False)))
         conn.commit()
         new_drama_id = cursor.lastrowid
         
@@ -856,10 +856,10 @@ async def create_copyright(data: Dict[str, Any] = Body(...)):
                 match_query = """
                     SELECT duration_formatted, size_bytes 
                     FROM video_scan_result 
-                    WHERE source_file LIKE %s AND file_name LIKE %s
+                    WHERE standard_episode_name = %s
                     LIMIT 1
                 """
-                cursor.execute(match_query, (f"%{media_name}%", f"%第{episode_num}%"))
+                cursor.execute(match_query, (episode_name,))
                 match_result = cursor.fetchone()
                 
                 if match_result:
@@ -880,9 +880,9 @@ async def create_copyright(data: Dict[str, Any] = Body(...)):
             
             conn.commit()
         
-        # 3. 插入版权方数据（包含 drama_id 和 customer_id）
+        # 3. 插入版权方数据（包含 drama_id，不包含 customer_id）
         fields = [
-            'drama_id', 'customer_id', 'media_name', 'upstream_copyright', 'category_level1', 'category_level1_henan',
+            'drama_id', 'media_name', 'upstream_copyright', 'category_level1', 'category_level1_henan',
             'category_level2_henan', 'episode_count', 'single_episode_duration', 'total_duration',
             'production_year', 'production_region', 'language', 'language_henan', 'country',
             'director', 'screenwriter', 'cast_members', 'recommendation', 'synopsis',
@@ -891,10 +891,10 @@ async def create_copyright(data: Dict[str, Any] = Body(...)):
             'authorization_platform', 'cooperation_mode'
         ]
         
-        insert_fields = ['drama_id', 'customer_id']
-        insert_values = [new_drama_id, customer_id]
+        insert_fields = ['drama_id']
+        insert_values = [new_drama_id]
         
-        for field in fields[2:]:  # 跳过 drama_id 和 customer_id
+        for field in fields[1:]:  # 跳过 drama_id
             if field in data and data[field] is not None:
                 insert_fields.append(field)
                 insert_values.append(data[field])
@@ -926,12 +926,11 @@ async def create_copyright(data: Dict[str, Any] = Body(...)):
             conn.rollback()
             conn.close()
         raise HTTPException(status_code=500, detail=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.put("/api/copyright/{item_id}")
 async def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
-    """更新版权方数据"""
+    """更新版权方数据，并同步更新关联的剧集和子集"""
     conn = None
     try:
         conn = get_db_connection()
@@ -946,6 +945,7 @@ async def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
             conn.close()
             raise HTTPException(status_code=404, detail="数据不存在")
         
+        # 1. 更新版权方表
         fields = [
             'media_name', 'upstream_copyright', 'category_level1', 'category_level1_henan',
             'category_level2_henan', 'episode_count', 'single_episode_duration', 'total_duration',
@@ -969,13 +969,196 @@ async def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
             update_values.append(item_id)
             cursor.execute(update_query, update_values)
             conn.commit()
+            
+        # 2. 同步更新剧集 (Drama Main)
+        drama_id = item.get('drama_id')
+        print(f"[DEBUG] update_copyright - item_id={item_id}, drama_id={drama_id}")
         
+        if drama_id:
+            # 合并旧数据和新数据，用于计算最新的属性
+            merged_data = dict(item)
+            merged_data.update(data)
+            
+            # 提取所需字段 (逻辑同 create_copyright)
+            media_name = merged_data.get('media_name')
+            author_list = merged_data.get('director') or "暂无"
+            language = merged_data.get('language_henan') or merged_data.get('language') or "简体中文"
+            actors = merged_data.get('cast_members') or ""
+            content_type = merged_data.get('category_level1_henan') or "电视剧"
+            
+            release_year = None
+            if merged_data.get('production_year'):
+                try:
+                    release_year = int(merged_data['production_year'])
+                except: pass
+                
+            keywords = merged_data.get('keywords') or ""
+            
+            rating = None
+            if merged_data.get('rating'):
+                try:
+                    rating = float(merged_data['rating'])
+                except: pass
+                
+            recommendation = merged_data.get('recommendation') or ""
+            
+            total_episodes = 0
+            if merged_data.get('episode_count'):
+                try:
+                    total_episodes = int(merged_data['episode_count'])
+                except: pass
+                
+            description = merged_data.get('synopsis') or ""
+            secondary_category = merged_data.get('category_level2_henan') or ""
+            
+            # 产品分类
+            product_category = 3
+            if content_type:
+                if "教育" in str(content_type):
+                    product_category = 1
+                elif "电竞" in str(content_type):
+                    product_category = 2
+                    
+            # 拼音和图片
+            def get_pinyin_abbr(name):
+                result = []
+                for char in name:
+                    if '\u4e00' <= char <= '\u9fff':
+                        py = pinyin(char, style=Style.FIRST_LETTER)
+                        if py and py[0]:
+                            result.append(py[0][0])
+                    elif char.isalnum():
+                        result.append(char.lower())
+                return ''.join(result)
+            
+            abbr = get_pinyin_abbr(media_name)
+            vertical_image = f"http://36.133.168.235:18181/img/{abbr}_st.jpg"
+            horizontal_image = f"http://36.133.168.235:18181/img/{abbr}_ht.jpg"
+            
+            dynamic_props = {
+                '作者列表': author_list,
+                '清晰度': 1,
+                '语言': language,
+                '主演': actors,
+                '内容类型': content_type,
+                '上映年份': release_year,
+                '关键字': keywords,
+                '评分': rating,
+                '推荐语': recommendation,
+                '总集数': total_episodes,
+                '产品分类': product_category,
+                '竖图': vertical_image,
+                '描述': description,
+                '横图': horizontal_image,
+                '版权': 1,
+                '二级分类': secondary_category
+            }
+            
+            # 更新 drama_main
+            drama_update_sql = "UPDATE drama_main SET drama_name = %s, dynamic_properties = %s WHERE drama_id = %s"
+            print(f"[DEBUG] Updating drama_main - drama_id={drama_id}, media_name={media_name}")
+            cursor.execute(drama_update_sql, (media_name, json.dumps(dynamic_props, ensure_ascii=False), drama_id))
+            affected_rows = cursor.rowcount
+            print(f"[DEBUG] UPDATE affected {affected_rows} rows")
+            conn.commit()
+            
+            # 3. 同步更新子集 (Drama Episode)
+            # 策略：如果集数、剧名或分类发生了变化，则删除旧子集，重新生成
+            # 简化起见，这里选择：只要有更新操作，就重新生成子集信息，确保数据最新（或者通过比较 total_episodes 和 media_name 变化来决定）
+            # 为了保证路径和匹配的准确性，重新生成比较稳妥
+            
+            old_media_name = item.get('media_name')
+            old_episode_count = item.get('episode_count')
+            old_category = item.get('category_level1_henan')
+            
+            new_media_name = merged_data.get('media_name')
+            new_episode_count = merged_data.get('episode_count')
+            new_category = merged_data.get('category_level1_henan')
+            
+            # 只有当关键字段（影响子集生成逻辑的字段）发生变化时，才重置子集
+            # 由于子集表没有额外的手工维护字段，全是用逻辑生成的，所以重建是安全的
+            need_regenerate_episodes = (
+                old_media_name != new_media_name or 
+                old_episode_count != new_episode_count or
+                old_category != new_category
+            )
+            
+            # 如果强制每次更新都刷新子集也可以，防止 manually 修改了某些字段但没触发更新
+            # 这里选择：总是重新生成，以确保数据一致性，除非集数为0
+            
+            if total_episodes > 0:
+                # 删除旧子集
+                cursor.execute("DELETE FROM drama_episode WHERE drama_id = %s", (drama_id,))
+                
+                # 重新构建子集
+                if "儿童" in str(content_type):
+                    content_dir = "shaoer"
+                elif "教育" in str(content_type):
+                    content_dir = "mqxt"
+                elif "电竞" in str(content_type):
+                    content_dir = "rywg"
+                else:
+                    content_dir = "shaoer"
+                
+                # 批量插入优化
+                episode_values = []
+                
+                # 优化：先一次性查询该剧所有可能的扫描结果，避免在循环中多次查询数据库
+                # 使用 LIKE 匹配 "剧名第%" 开头的记录
+                scan_map = {}
+                try:
+                    batch_query = """
+                        SELECT standard_episode_name, duration_formatted, size_bytes 
+                        FROM video_scan_result 
+                        WHERE standard_episode_name LIKE %s
+                    """
+                    # 注意：这里假设 standard_episode_name 格式为 "剧名第...集"
+                    cursor.execute(batch_query, (f"{media_name}第%",))
+                    scan_results = cursor.fetchall()
+                    for r in scan_results:
+                        if r['standard_episode_name']:
+                            scan_map[r['standard_episode_name']] = r
+                except Exception as e:
+                    print(f"Batch query scan result failed: {e}")
+                    # 降级处理：如果不成功，scan_map 为空，下面循环中 duration/size 默认为 0
+                
+                for episode_num in range(1, total_episodes + 1):
+                    episode_name = f"{media_name}第{episode_num:02d}集"
+                    media_url = f"ftp://ftpmediazjyd:rD2q0y1M5eI@36.133.168.235:2121/media/hnyd/{content_dir}/{abbr}/{abbr}{episode_num:03d}.ts"
+                    
+                    # 匹配时长和大小 (从内存字典获取，不再查询 DB)
+                    duration = 0
+                    file_size = 0
+                    
+                    match_result = scan_map.get(episode_name)
+                    
+                    if match_result:
+                        duration = match_result['duration_formatted'] if match_result['duration_formatted'] else 0
+                        file_size = int(match_result['size_bytes']) if match_result['size_bytes'] else 0
+                    
+                    episode_props = {
+                        '媒体拉取地址': media_url,
+                        '媒体类型': 1,
+                        '编码格式': 1,
+                        '集数': episode_num,
+                        '时长': duration,
+                        '文件大小': file_size
+                    }
+                    
+                    episode_values.append((drama_id, episode_name, json.dumps(episode_props, ensure_ascii=False)))
+                
+                if episode_values:
+                    ep_insert_sql = "INSERT INTO drama_episode (drama_id, episode_name, dynamic_properties) VALUES (%s, %s, %s)"
+                    cursor.executemany(ep_insert_sql, episode_values)
+                
+                conn.commit()
+
         conn.close()
         
         return {
             "code": 200,
             "message": "更新成功",
-            "data": {"id": item_id}
+            "data": {"id": item_id, "drama_id": drama_id}
         }
     except HTTPException:
         if conn:

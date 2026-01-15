@@ -1,16 +1,13 @@
 // API基础URL
 const API_BASE = '/api';
 
-// 当前页码
-let currentPage = 1;
+// 全局状态变量
 let pageSize = 10;
-let totalPages = 1;
 let currentDramaName = '';
 let currentDramaId = null;
 let currentCustomerId = null;
 let currentCustomerName = '';
 let currentDramaData = null;
-let previousPageId = null; // 记录进入详情页之前的页面ID
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
@@ -102,7 +99,7 @@ function renderCustomerTable(customers) {
     const tbody = document.getElementById('customer-table-body');
     
     if (!customers || customers.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">暂无用户数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" class="px-6 py-8 text-center text-slate-500">暂无用户数据</td></tr>';
         return;
     }
     
@@ -149,21 +146,6 @@ function renderCustomerTable(customers) {
                         </span>
                     </div>
                 </td>
-                <td class="px-6 py-5 hidden sm:table-cell">
-                    <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-sm shadow-blue-500/30">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-                            <path d="M7 3v18"/>
-                            <path d="M3 7.5h4"/>
-                            <path d="M3 12h18"/>
-                            <path d="M3 16.5h4"/>
-                            <path d="M17 3v18"/>
-                            <path d="M17 7.5h4"/>
-                            <path d="M17 16.5h4"/>
-                        </svg>
-                        ${customer.drama_count || 0} 部
-                    </span>
-                </td>
                 <td class="px-6 py-5 text-right">
                     <button onclick="viewCustomerDramas(${customer.customer_id}, '${customer.customer_name.replace(/'/g, "\\'")}')" 
                         class="text-blue-600 hover:text-blue-700 font-semibold text-sm inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 px-4 py-2 rounded-lg transition-all shadow-sm hover:shadow-md group-hover:scale-105">
@@ -201,510 +183,7 @@ function viewCustomerDramas(customerId, customerName) {
     if (searchInput) {
         searchInput.value = '';
     }
-    
-    // 加载该用户的剧头列表
-    loadAllDramaHeaders(1);
 }
-
-// 返回用户列表
-function backToCustomerList() {
-    currentCustomerId = null;
-    currentCustomerName = '';
-    
-    // 清空搜索框
-    const searchInput = document.getElementById('search-input');
-    if (searchInput) {
-        searchInput.value = '';
-    }
-    
-    showPage('customer-list');
-}
-
-// 加载剧集列表
-async function loadDramaList(page = 1) {
-    currentPage = page;
-    const keyword = document.getElementById('search-input')?.value || '';
-    
-    try {
-        let url = `${API_BASE}/dramas?page=${page}&page_size=${pageSize}`;
-        if (currentCustomerId) {
-            url += `&customer_id=${currentCustomerId}`;
-        }
-        if (keyword) {
-            url += `&keyword=${encodeURIComponent(keyword)}`;
-        }
-        
-        const response = await fetch(url);
-        const result = await response.json();
-        
-        if (result.code === 200) {
-            renderDramaTable(result.data.list);
-            renderPagination(result.data);
-            
-            // 更新副标题显示剧集数量
-            const subtitleEl = document.getElementById('drama-list-subtitle');
-            if (subtitleEl) {
-                subtitleEl.textContent = `共 ${result.data.total} 部剧集`;
-            }
-        } else {
-            showError('加载数据失败：' + result.message);
-        }
-    } catch (error) {
-        showError('加载数据失败：' + error.message);
-    }
-}
-
-// 渲染剧集表格
-function renderDramaTable(dramas) {
-    const tbody = document.getElementById('drama-table-body');
-    
-    if (!dramas || dramas.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-12 text-center text-slate-500"><div class="flex flex-col items-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg><span class="text-base">暂无剧集数据</span></div></td></tr>';
-        return;
-    }
-    
-    tbody.innerHTML = dramas.map((drama, index) => {
-        const props = drama.dynamic_properties || {};
-        const contentType = props['内容类型'] || '-';
-        const rating = props['评分'] || 0;
-        const totalEpisodes = props['总集数'] || 0;
-        
-        const rowClass = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30';
-        return `
-            <tr class="${rowClass} hover:bg-blue-50/50 transition-all duration-200 border-b border-slate-100 group">
-                <td class="px-6 py-4">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-md bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                            ${drama.drama_id}
-                        </div>
-                    </div>
-                </td>
-                <td class="px-6 py-4">
-                    <div class="font-semibold text-slate-900 text-base">${drama.drama_name}</div>
-                    ${props['推荐语'] ? `<div class="text-xs text-slate-500 mt-1.5 flex items-center gap-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                        </svg>
-                        <span class="italic">${props['推荐语']}</span>
-                    </div>` : ''}
-                </td>
-                <td class="px-6 py-4 hidden sm:table-cell">
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-500">
-                            <rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>
-                        </svg>
-                        ${contentType}
-                    </span>
-                </td>
-                <td class="px-6 py-4 hidden sm:table-cell">
-                    <span class="inline-flex items-center gap-1.5 text-slate-700 font-medium">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-500">
-                            <line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>
-                        </svg>
-                        ${totalEpisodes} 集
-                    </span>
-                </td>
-                <td class="px-6 py-4 hidden sm:table-cell">
-                    ${rating ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gradient-to-r from-orange-100 to-amber-100 text-orange-700 font-semibold text-sm border border-orange-200">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none" class="text-orange-500">
-                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                        </svg>
-                        ${rating}
-                    </span>` : '<span class="text-slate-400">-</span>'}
-                </td>
-                <td class="px-6 py-4 text-right">
-                    <button onclick="viewDramaDetail(${drama.drama_id}, '${drama.drama_name.replace(/'/g, "\\'")}')" 
-                        class="text-blue-600 hover:text-blue-700 font-semibold text-sm inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 px-3.5 py-2 rounded-lg transition-all shadow-sm hover:shadow-md group-hover:scale-105">
-                        查看详情
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="m9 18 6-6-6-6"/>
-                        </svg>
-                    </button>
-                </td>
-            </tr>
-        `;
-    }).join('');
-}
-
-// 渲染分页
-function renderPagination(data) {
-    totalPages = data.total_pages;
-    const pagination = document.getElementById('pagination');
-    
-    if (totalPages <= 1) {
-        pagination.innerHTML = '';
-        return;
-    }
-    
-    pagination.innerHTML = `
-        <button ${currentPage === 1 ? 'disabled' : ''} 
-            onclick="loadDramaList(${currentPage - 1})"
-            class="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            上一页
-        </button>
-        <span class="text-sm text-slate-600 mx-4">第 ${currentPage} / ${totalPages} 页，共 ${data.total} 条</span>
-        <button ${currentPage === totalPages ? 'disabled' : ''} 
-            onclick="loadDramaList(${currentPage + 1})"
-            class="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            下一页
-        </button>
-    `;
-}
-
-// 搜索剧集
-async function searchDramas() {
-    const keyword = document.getElementById('search-input')?.value?.trim() || '';
-    
-    if (!keyword) {
-        showError('请输入要搜索的剧集名称');
-        return;
-    }
-    
-    try {
-        // 使用精确搜索API直接获取剧集详情
-        const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(keyword)}`);
-        
-        if (!response.ok) {
-            const error = await response.json();
-            showError(error.detail || '未找到该剧集');
-            return;
-        }
-        
-        const result = await response.json();
-        
-        if (result.code === 200 && result.data) {
-            // 直接显示详情页面
-            const header = result.data.header;
-            const episodes = result.data.episodes || [];
-            
-            currentDramaName = header['剧集名称'];
-            currentDramaId = header['剧头id'];
-            currentDramaData = header;
-            showDramaDetailPage(header, episodes);
-        } else {
-            showError(result.message || '未找到该剧集');
-        }
-    } catch (error) {
-        showError('搜索失败：' + error.message);
-    }
-}
-
-// 查看剧集详情
-async function viewDramaDetail(dramaId, dramaName) {
-    currentDramaName = dramaName;
-    currentDramaId = dramaId;
-    
-    // 记录来源页面
-    const detailPage = document.getElementById('detail-page');
-    const headerManagementPage = document.getElementById('drama-header-management-page');
-    const dramaListPage = document.getElementById('drama-list-page');
-    
-    if (headerManagementPage && headerManagementPage.classList.contains('active')) {
-        previousPageId = 'drama-header-management';
-    } else if (dramaListPage && dramaListPage.classList.contains('active')) {
-        previousPageId = 'drama-list';
-    } else {
-        previousPageId = 'customer-list';
-    }
-    
-    try {
-        // 获取剧集详情
-        const response = await fetch(`${API_BASE}/dramas/${dramaId}`);
-        const result = await response.json();
-        
-        if (result.code === 200) {
-            const header = result.data;
-            currentDramaData = header;
-            
-            // 获取子集列表
-            const episodesResponse = await fetch(`${API_BASE}/dramas/${dramaId}/episodes`);
-            const episodesResult = await episodesResponse.json();
-            const episodes = episodesResult.code === 200 ? episodesResult.data : [];
-            
-            // 显示详情页面
-            showDramaDetailPage(header, episodes);
-        } else {
-            showError('获取详情失败：' + result.message);
-        }
-    } catch (error) {
-        showError('获取详情失败：' + error.message);
-    }
-}
-
-// 显示剧集详情页面
-function showDramaDetailPage(header, episodes) {
-    // 隐藏所有页面
-    document.getElementById('drama-list-page')?.classList.remove('active');
-    document.getElementById('drama-header-management-page')?.classList.remove('active');
-    document.getElementById('customer-list-page')?.classList.remove('active');
-    
-    // 显示详情页面
-    document.getElementById('detail-page').classList.add('active');
-    
-    // 更新标题
-    const detailTitle = document.getElementById('detail-title');
-    detailTitle.textContent = header['剧集名称'] || '剧集详情';
-    
-    // 更新header标题
-    const headerTitle = document.getElementById('header-title');
-    if (headerTitle) {
-        headerTitle.textContent = `剧集详情 - ${header['剧集名称'] || '剧集详情'}`;
-    }
-    
-    const detailBody = document.getElementById('detail-body');
-    
-    // 构建详情HTML
-    let html = '<div class="space-y-6">';
-    
-    // 剧集基本信息卡片
-    html += '<div class="bg-gradient-to-br from-white to-slate-50 border border-slate-200 rounded-xl p-6 shadow-lg">';
-    html += '<div class="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200">';
-    html += '<div class="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-xl shadow-lg">';
-    html += (header['剧集名称'] ? header['剧集名称'].charAt(0) : '剧');
-    html += '</div>';
-    html += '<div><h3 class="text-xl font-bold text-slate-900 flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-purple-600"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>剧集基本信息</h3><p class="text-sm text-slate-500 mt-1">查看完整的剧集详细信息</p></div>';
-    html += '</div>';
-    html += '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">';
-    
-    const headerFields = [
-        { label: '剧集ID', key: '剧头id', icon: 'hash', color: 'blue' },
-        { label: '剧集名称', key: '剧集名称', icon: 'film', color: 'purple' },
-        { label: '作者列表', key: '作者列表', icon: 'users', color: 'indigo' },
-        { label: '清晰度', key: '清晰度', icon: 'monitor', color: 'cyan' },
-        { label: '语言', key: '语言', icon: 'globe', color: 'teal' },
-        { label: '主演', key: '主演', icon: 'star', color: 'amber' },
-        { label: '内容类型', key: '内容类型', icon: 'grid', color: 'pink' },
-        { label: '上映年份', key: '上映年份', icon: 'calendar', color: 'rose' },
-        { label: '关键字', key: '关键字', icon: 'tag', color: 'violet' },
-        { label: '评分', key: '评分', icon: 'star', color: 'yellow' },
-        { label: '推荐语', key: '推荐语', icon: 'message', color: 'sky' },
-        { label: '总集数', key: '总集数', icon: 'list', color: 'emerald' },
-        { label: '产品分类', key: '产品分类', icon: 'package', color: 'orange' },
-        { label: '版权', key: '版权', icon: 'shield', color: 'green' },
-        { label: '二级分类', key: '二级分类', icon: 'layers', color: 'slate' }
-    ];
-    
-    const iconMap = {
-        'hash': '<line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>',
-        'film': '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
-        'users': '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
-        'monitor': '<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>',
-        'globe': '<circle cx="12" cy="12" r="10"/><line x1="2" x2="22" y1="12" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
-        'star': '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
-        'grid': '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
-        'calendar': '<rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/>',
-        'tag': '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.414 8.414a2 2 0 0 0 2.828 0l7.172-7.172a2 2 0 0 0 0-2.828Z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>',
-        'message': '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-        'list': '<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>',
-        'package': '<path d="m7.5 4.27 9 5.15"/><path d="M21 10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M3.29 7 12 12l8.71-5"/><path d="M12 22V12"/>',
-        'shield': '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
-        'layers': '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>'
-    };
-    
-    const colorMap = {
-        'blue': 'from-blue-500 to-cyan-500',
-        'purple': 'from-purple-500 to-pink-500',
-        'indigo': 'from-indigo-500 to-blue-500',
-        'cyan': 'from-cyan-500 to-teal-500',
-        'teal': 'from-teal-500 to-emerald-500',
-        'amber': 'from-amber-500 to-orange-500',
-        'pink': 'from-pink-500 to-rose-500',
-        'rose': 'from-rose-500 to-red-500',
-        'violet': 'from-violet-500 to-purple-500',
-        'yellow': 'from-yellow-400 to-orange-500',
-        'sky': 'from-sky-500 to-blue-500',
-        'emerald': 'from-emerald-500 to-green-500',
-        'orange': 'from-orange-500 to-red-500',
-        'green': 'from-green-500 to-emerald-500',
-        'slate': 'from-slate-500 to-slate-600'
-    };
-    
-    headerFields.forEach(field => {
-        const value = header[field.key] !== null && header[field.key] !== undefined ? header[field.key] : '-';
-        const gradient = colorMap[field.color] || 'from-slate-500 to-slate-600';
-        const iconPath = iconMap[field.icon] || '';
-        const isSpecial = field.key === '评分' && value !== '-';
-        
-        html += '<div class="group relative bg-white border border-slate-200 rounded-lg p-4 hover:shadow-md transition-all hover:border-purple-300">';
-        html += '<div class="flex items-start gap-3">';
-        html += '<div class="w-10 h-10 rounded-lg bg-gradient-to-br ' + gradient + ' flex items-center justify-center text-white shadow-sm group-hover:scale-110 transition-transform flex-shrink-0">';
-        html += '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + iconPath + '</svg>';
-        html += '</div>';
-        html += '<div class="flex-1 min-w-0">';
-        html += '<div class="text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wide">' + field.label + '</div>';
-        if (isSpecial) {
-            html += '<div class="text-sm font-semibold text-slate-900 break-words text-lg"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gradient-to-r from-yellow-400 to-orange-500 text-white"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>' + value + '</span></div>';
-        } else {
-            html += '<div class="text-sm font-semibold text-slate-900 break-words">' + value + '</div>';
-        }
-        html += '</div></div></div>';
-    });
-    
-    html += '</div>';
-    
-    // 描述信息
-    if (header['描述']) {
-        html += '<div class="mt-6 pt-6 border-t border-slate-200 bg-gradient-to-r from-slate-50 to-blue-50 rounded-lg p-5">';
-        html += '<div class="flex items-center gap-2 mb-3"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="text-sm font-semibold text-slate-700">剧集描述</span></div>';
-        html += '<p class="text-sm text-slate-700 leading-relaxed pl-6">' + header['描述'] + '</p>';
-        html += '</div>';
-    }
-    
-    html += '</div>';
-    
-    // 子集信息卡片（始终显示，即使没有子集）
-    html += '<div class="bg-gradient-to-br from-white to-indigo-50 border border-slate-200 rounded-xl p-6 shadow-lg">';
-    html += '<div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">';
-    html += '<div class="flex items-center gap-3">';
-    html += '<div class="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-xl shadow-lg">';
-    html += episodes.length;
-    html += '</div>';
-    html += '<div>';
-    html += '<h3 class="text-xl font-bold text-slate-900 flex items-center gap-2">';
-    html += '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-600">';
-    html += '<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>';
-    html += '</svg>子集信息</h3>';
-    html += '<p class="text-sm text-slate-500 mt-1">共 ' + episodes.length + ' 集</p>';
-    html += '</div>';
-    html += '</div>';
-    // 添加子集按钮
-    html += '<button onclick="openAddEpisodeModal()" class="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg hover:from-green-600 hover:to-emerald-600 transition-all shadow-md hover:shadow-lg font-medium">';
-    html += '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/></svg>';
-    html += '添加子集';
-    html += '</button>';
-    html += '</div>';
-    
-    if (episodes && episodes.length > 0) {
-        html += '<div class="overflow-x-auto">';
-        html += '<table class="w-full text-left border-collapse">';
-        html += '<thead>';
-        html += '<tr class="bg-gradient-to-r from-blue-50 to-cyan-50 border-b border-slate-200">';
-        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">子集ID</th>';
-        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">节目名称</th>';
-        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">集数</th>';
-        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">媒体拉取地址</th>';
-        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">媒体类型</th>';
-        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">编码格式</th>';
-        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">时长</th>';
-        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm">文件大小</th>';
-        html += '<th class="px-4 py-3 text-slate-800 font-bold text-sm text-center">操作</th>';
-        html += '</tr>';
-        html += '</thead>';
-        html += '<tbody class="divide-y divide-slate-100">';
-        
-        episodes.forEach((episode, index) => {
-            const rowBg = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30';
-            html += `<tr class="${rowBg} hover:bg-blue-50/50 transition-all duration-200 border-b border-slate-100 group">`;
-            html += `<td class="px-4 py-3">
-                <div class="flex items-center gap-2">
-                    <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white font-bold text-sm shadow-md">
-                        ${episode['子集id']}
-                    </div>
-                </div>
-            </td>`;
-            html += `<td class="px-4 py-3">
-                <div class="font-semibold text-slate-900 text-base">${episode['节目名称']}</div>
-            </td>`;
-            html += `<td class="px-4 py-3">
-                <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-blue-100 to-cyan-100 text-blue-700 text-sm font-semibold border border-blue-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>
-                    </svg>
-                    第${episode['集数']}集
-                </span>
-            </td>`;
-            html += `<td class="px-4 py-3 max-w-xs">
-                <div class="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400 flex-shrink-0">
-                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                    </svg>
-                    <span class="truncate font-mono text-xs text-slate-600" title="${episode['媒体拉取地址'] || ''}">${episode['媒体拉取地址'] || '-'}</span>
-                </div>
-            </td>`;
-            html += `<td class="px-4 py-3">
-                <span class="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium">${episode['媒体类型'] || '-'}</span>
-            </td>`;
-            html += `<td class="px-4 py-3">
-                <span class="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium">${episode['编码格式'] || '-'}</span>
-            </td>`;
-            html += `<td class="px-4 py-3">
-                <span class="inline-flex items-center gap-1.5 text-slate-700 font-medium text-sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-500">
-                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                    </svg>
-                    ${episode['时长'] || '-'}
-                </span>
-            </td>`;
-            html += `<td class="px-4 py-3">
-                <span class="inline-flex items-center gap-1.5 text-slate-700 font-medium text-sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-500">
-                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" x2="12" y1="22.08" y2="12"/>
-                    </svg>
-                    ${episode['文件大小'] || '-'}
-                </span>
-            </td>`;
-            // 操作按钮
-            html += `<td class="px-4 py-3 text-center">
-                <div class="flex items-center justify-center gap-2">
-                    <button onclick="openEditEpisodeModal(${episode['子集id']}, '${(episode['节目名称'] || '').replace(/'/g, "\\'")}', '${(episode['媒体拉取地址'] || '').replace(/'/g, "\\'")}', ${episode['媒体类型'] || 0}, ${episode['编码格式'] || 0}, ${episode['集数'] || 0}, ${episode['时长'] || 0}, ${episode['文件大小'] || 0})" 
-                        class="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title="编辑">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>
-                        </svg>
-                    </button>
-                    <button onclick="deleteEpisode(${episode['子集id']}, '${(episode['节目名称'] || '').replace(/'/g, "\\'")}')" 
-                        class="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors" title="删除">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-                        </svg>
-                    </button>
-                </div>
-            </td>`;
-            html += '</tr>';
-        });
-        
-        html += '</tbody>';
-        html += '</table>';
-        html += '</div>';
-    } else {
-        // 没有子集时显示提示
-        html += '<div class="text-center py-8 text-slate-500">';
-        html += '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mx-auto mb-3 text-slate-300"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg>';
-        html += '<p>暂无子集数据，点击上方按钮添加</p>';
-        html += '</div>';
-    }
-    html += '</div>';
-    
-    html += '</div>';
-    
-    detailBody.innerHTML = html;
-}
-
-// 返回剧集列表
-function backToDramaList() {
-    // 隐藏详情页面
-    document.getElementById('detail-page').classList.remove('active');
-    
-    // 根据记录的来源页面返回
-    if (previousPageId === 'drama-header-management') {
-        document.getElementById('drama-header-management-page').classList.add('active');
-    } else if (previousPageId === 'drama-list') {
-        document.getElementById('drama-list-page').classList.add('active');
-    } else {
-        // 默认返回用户列表
-        document.getElementById('customer-list-page').classList.add('active');
-    }
-    
-    // 清空来源页面记录
-    previousPageId = null;
-    
-    // 更新header标题
-    const headerTitle = document.getElementById('header-title');
-    if (headerTitle) {
-        headerTitle.textContent = '剧集管理中心';
-    }
-}
-
 
 // 导出Excel
 async function exportDrama() {
@@ -839,8 +318,11 @@ async function saveDramaEdit() {
                 // 在详情页，重新加载详情
                 await viewDramaDetail(currentDramaId, formData['剧集名称']);
             } else if (headerManagementPage && headerManagementPage.classList.contains('active')) {
-                // 在剧头管理页面，重新加载列表
-                await loadAllDramaHeaders(currentPage);
+                // 在剧头管理页面，重新搜索
+                const keyword = document.getElementById('header-search-input')?.value?.trim() || '';
+                if (keyword) {
+                    await searchDramaHeaderDirect();
+                }
             }
         } else {
             showError('更新失败：' + (result.message || '未知错误'));
@@ -850,50 +332,35 @@ async function saveDramaEdit() {
     }
 }
 
-// 加载所有剧头列表
-async function loadAllDramaHeaders(page = 1) {
-    currentPage = page;
-    
-    try {
-        let url = `${API_BASE}/dramas?page=${page}&page_size=${pageSize}`;
-        
-        // 如果有当前用户ID，按用户筛选
-        if (currentCustomerId) {
-            url += `&customer_id=${currentCustomerId}`;
-        }
-        
-        const response = await fetch(url);
-        const result = await response.json();
-        
-        if (result.code === 200) {
-            const dramas = result.data.list || [];
-            renderDramaHeaderTable(dramas);
-            renderDramaHeaderPagination(result.data);
-        } else {
-            showError('加载失败：' + result.message);
-        }
-    } catch (error) {
-        showError('加载失败：' + error.message);
-    }
-}
-
-// 搜索剧头
-async function searchDramaHeaders(page = 1) {
+// 剧头管理页面 - 直接搜索并显示结果
+async function searchDramaHeaderDirect() {
     const keyword = document.getElementById('header-search-input')?.value?.trim() || '';
+    const resultContainer = document.getElementById('header-search-result');
     
     if (!keyword) {
-        // 如果没有关键词，加载所有剧头列表
-        await loadAllDramaHeaders(1);
+        showError('请输入剧集名称进行搜索');
+        resultContainer.classList.add('hidden');
         return;
     }
     
     try {
-        // 使用搜索API直接获取匹配的剧集
+        // 使用搜索API获取剧集详情
         const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(keyword)}`);
         
         if (!response.ok) {
             const error = await response.json();
-            showError(error.detail || '未找到匹配的剧集');
+            resultContainer.innerHTML = `
+                <div class="bg-white border border-slate-200 rounded-xl p-8 text-center">
+                    <div class="text-slate-400 mb-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mx-auto">
+                            <circle cx="11" cy="11" r="8"/>
+                            <path d="m21 21-4.3-4.3"/>
+                        </svg>
+                    </div>
+                    <p class="text-slate-500">${error.detail || '未找到匹配的剧集'}</p>
+                </div>
+            `;
+            resultContainer.classList.remove('hidden');
             return;
         }
         
@@ -908,138 +375,164 @@ async function searchDramaHeaders(page = 1) {
             currentDramaName = header['剧集名称'];
             currentDramaData = header;
             
-            // 记录来源页面
-            previousPageId = 'drama-header-management';
-            
-            // 直接显示剧集详情页面
-            showDramaDetailPage(header, episodes);
+            // 在当前页面下方显示详情
+            renderDramaDetailInline(header, episodes, resultContainer);
+            resultContainer.classList.remove('hidden');
         } else {
-            showError('未找到匹配的剧集');
+            resultContainer.innerHTML = `
+                <div class="bg-white border border-slate-200 rounded-xl p-8 text-center">
+                    <p class="text-slate-500">未找到匹配的剧集</p>
+                </div>
+            `;
+            resultContainer.classList.remove('hidden');
         }
     } catch (error) {
         showError('搜索失败：' + error.message);
     }
 }
 
-// 渲染剧头表格
-function renderDramaHeaderTable(dramas) {
-    const tbody = document.getElementById('drama-header-table-body');
+// 在剧头管理页面内联显示剧集详情
+function renderDramaDetailInline(header, episodes, container) {
+    let html = '<div class="space-y-6">';
     
-    if (!dramas || dramas.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-12 text-center text-slate-500"><div class="flex flex-col items-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/></svg><span class="text-base">暂无剧集数据</span></div></td></tr>';
-        return;
-    }
+    // 剧集基本信息卡片
+    html += '<div class="bg-gradient-to-br from-white to-slate-50 border border-slate-200 rounded-xl p-6 shadow-lg">';
+    html += '<div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">';
+    html += '<div class="flex items-center gap-3">';
+    html += '<div class="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-xl shadow-lg">';
+    html += (header['剧集名称'] ? header['剧集名称'].charAt(0) : '剧');
+    html += '</div>';
+    html += '<div><h3 class="text-xl font-bold text-slate-900">' + (header['剧集名称'] || '剧集详情') + '</h3>';
+    html += '<p class="text-sm text-slate-500 mt-1">剧集ID: ' + (header['剧头id'] || '-') + '</p></div>';
+    html += '</div>';
+    html += '<div class="flex items-center gap-2">';
+    html += `<button onclick="editDramaHeader(${header['剧头id']}, '${(header['剧集名称'] || '').replace(/'/g, "\\'")}')" 
+        class="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 px-3 py-1.5 rounded-lg transition-all">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+        编辑
+    </button>`;
+    html += `<button onclick="exportDramaById(${header['剧头id']})" 
+        class="text-green-600 hover:text-green-700 font-medium text-sm inline-flex items-center gap-1.5 bg-green-50 hover:bg-green-100 border border-green-200 hover:border-green-300 px-3 py-1.5 rounded-lg transition-all">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" x2="12" y1="15" y2="3"/>
+        </svg>
+        导出
+    </button>`;
+    html += '</div></div>';
     
-    tbody.innerHTML = dramas.map((drama, index) => {
-        const props = drama.dynamic_properties || {};
-        const contentType = props['内容类型'] || '-';
-        const rating = props['评分'] || 0;
-        const totalEpisodes = props['总集数'] || 0;
-        const authorList = props['作者列表'] || '-';
-        
-        const rowClass = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30';
-        return `
-            <tr class="${rowClass} hover:bg-blue-50/50 transition-all duration-200 border-b border-slate-100 group">
-                <td class="px-6 py-4">
-                    <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-md bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                            ${drama.drama_id}
-                        </div>
-                    </div>
-                </td>
-                <td class="px-6 py-4">
-                    <div class="font-semibold text-slate-900 text-base">${drama.drama_name}</div>
-                </td>
-                <td class="px-6 py-4 hidden md:table-cell">
-                    <span class="text-slate-600 text-sm">${authorList}</span>
-                </td>
-                <td class="px-6 py-4 hidden lg:table-cell">
-                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-sm font-medium">
-                        ${contentType}
-                    </span>
-                </td>
-                <td class="px-6 py-4 hidden lg:table-cell">
-                    <span class="inline-flex items-center gap-1.5 text-slate-700 font-medium text-sm">
-                        ${totalEpisodes} 集
-                    </span>
-                </td>
-                <td class="px-6 py-4 hidden lg:table-cell">
-                    ${rating ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gradient-to-r from-orange-100 to-amber-100 text-orange-700 font-semibold text-sm border border-orange-200">
-                        ${rating}
-                    </span>` : '<span class="text-slate-400">-</span>'}
-                </td>
-                <td class="px-6 py-4 text-right">
-                    <div class="flex items-center justify-end gap-2">
-                        <button onclick="editDramaHeader(${drama.drama_id}, '${drama.drama_name.replace(/'/g, "\\'")}')" 
-                            class="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 px-3 py-1.5 rounded-lg transition-all shadow-sm hover:shadow-md">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                            </svg>
-                            编辑
-                        </button>
-                        <button onclick="deleteDramaHeader(${drama.drama_id}, '${drama.drama_name.replace(/'/g, "\\'")}')" 
-                            class="text-red-600 hover:text-red-700 font-medium text-sm inline-flex items-center gap-1.5 bg-red-50 hover:bg-red-100 border border-red-200 hover:border-red-300 px-3 py-1.5 rounded-lg transition-all shadow-sm hover:shadow-md">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="3 6 5 6 21 6"/>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                            删除
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
-}
-
-// 渲染剧头分页
-function renderDramaHeaderPagination(data) {
-    totalPages = data.total_pages;
-    const pagination = document.getElementById('header-pagination');
+    // 基本信息网格
+    html += '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">';
+    const fields = [
+        { label: '作者列表', key: '作者列表' },
+        { label: '清晰度', key: '清晰度' },
+        { label: '语言', key: '语言' },
+        { label: '主演', key: '主演' },
+        { label: '内容类型', key: '内容类型' },
+        { label: '上映年份', key: '上映年份' },
+        { label: '关键字', key: '关键字' },
+        { label: '评分', key: '评分' },
+        { label: '总集数', key: '总集数' },
+        { label: '产品分类', key: '产品分类' },
+        { label: '版权', key: '版权' },
+        { label: '二级分类', key: '二级分类' }
+    ];
     
-    if (totalPages <= 1) {
-        pagination.innerHTML = '';
-        return;
-    }
-    
-    // 检查是否有搜索关键词
-    const keyword = document.getElementById('header-search-input')?.value?.trim() || '';
-    const paginationFunction = keyword ? 'searchDramaHeaders' : 'loadAllDramaHeaders';
-    
-    pagination.innerHTML = `
-        <button ${currentPage === 1 ? 'disabled' : ''} 
-            onclick="${paginationFunction}(${currentPage - 1})"
-            class="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            上一页
-        </button>
-        <span class="text-sm text-slate-600 mx-4">第 ${currentPage} / ${totalPages} 页，共 ${data.total} 条</span>
-        <button ${currentPage === totalPages ? 'disabled' : ''} 
-            onclick="${paginationFunction}(${currentPage + 1})"
-            class="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
-            下一页
-        </button>
-    `;
-}
-
-// 切换全选
-function toggleSelectAllHeaders(checked) {
-    const checkboxes = document.querySelectorAll('.header-checkbox');
-    checkboxes.forEach(cb => {
-        cb.checked = checked;
+    fields.forEach(field => {
+        const value = header[field.key] !== null && header[field.key] !== undefined ? header[field.key] : '-';
+        html += `<div class="bg-white border border-slate-200 rounded-lg p-3">
+            <div class="text-xs font-medium text-slate-500 mb-1">${field.label}</div>
+            <div class="text-sm font-semibold text-slate-900">${value}</div>
+        </div>`;
     });
+    html += '</div>';
+    
+    // 推荐语和描述
+    if (header['推荐语']) {
+        html += `<div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
+            <div class="text-xs font-medium text-blue-600 mb-1">推荐语</div>
+            <div class="text-sm text-blue-800">${header['推荐语']}</div>
+        </div>`;
+    }
+    if (header['描述']) {
+        html += `<div class="bg-slate-50 border border-slate-200 rounded-lg p-4 mt-4">
+            <div class="text-xs font-medium text-slate-600 mb-1">描述</div>
+            <div class="text-sm text-slate-700">${header['描述']}</div>
+        </div>`;
+    }
+    html += '</div>';
+    
+    // 子集信息
+    html += '<div class="bg-gradient-to-br from-white to-indigo-50 border border-slate-200 rounded-xl p-6 shadow-lg">';
+    html += '<div class="flex items-center justify-between mb-4 pb-4 border-b border-slate-200">';
+    html += '<h3 class="text-lg font-bold text-slate-900">子集信息 (' + episodes.length + ' 集)</h3>';
+    html += `<button onclick="openAddEpisodeModal(${header['剧头id']})" 
+        class="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 px-3 py-1.5 rounded-lg transition-all">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" x2="12" y1="5" y2="19"/>
+            <line x1="5" x2="19" y1="12" y2="12"/>
+        </svg>
+        添加子集
+    </button>`;
+    html += '</div>';
+    
+    if (episodes.length > 0) {
+        html += '<div class="overflow-x-auto"><table class="w-full text-left text-sm">';
+        html += '<thead><tr class="bg-slate-100 border-b border-slate-200">';
+        html += '<th class="px-4 py-2 font-semibold text-slate-700">集数ID</th>';
+        html += '<th class="px-4 py-2 font-semibold text-slate-700">节目名称</th>';
+        html += '<th class="px-4 py-2 font-semibold text-slate-700">媒体拉取地址</th>';
+        html += '<th class="px-4 py-2 font-semibold text-slate-700">时长</th>';
+        html += '<th class="px-4 py-2 font-semibold text-slate-700">文件大小</th>';
+        html += '<th class="px-4 py-2 font-semibold text-slate-700 text-right">操作</th>';
+        html += '</tr></thead><tbody>';
+        
+        episodes.forEach((ep, index) => {
+            // 支持两种数据格式：中文字段名（by-name API）和英文字段名（episodes API）
+            const episodeId = ep['子集id'] || ep.episode_id || 0;
+            const episodeName = ep['节目名称'] || ep.episode_name || '';
+            const mediaUrl = ep['媒体拉取地址'] || (ep.dynamic_properties && ep.dynamic_properties['媒体拉取地址']) || '';
+            const mediaType = ep['媒体类型'] || (ep.dynamic_properties && ep.dynamic_properties['媒体类型']) || 0;
+            const encoding = ep['编码格式'] || (ep.dynamic_properties && ep.dynamic_properties['编码格式']) || 0;
+            const episodeNum = ep['集数'] || (ep.dynamic_properties && ep.dynamic_properties['集数']) || 0;
+            const duration = ep['时长'] || (ep.dynamic_properties && ep.dynamic_properties['时长']) || 0;
+            const fileSize = ep['文件大小'] || (ep.dynamic_properties && ep.dynamic_properties['文件大小']) || 0;
+            
+            const rowClass = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50';
+            html += `<tr class="${rowClass} border-b border-slate-100 hover:bg-blue-50/50">`;
+            html += `<td class="px-4 py-2 text-slate-600">${episodeId}</td>`;
+            html += `<td class="px-4 py-2 font-medium text-slate-900">${episodeName}</td>`;
+            html += `<td class="px-4 py-2"><a href="${mediaUrl || '#'}" target="_blank" class="text-blue-600 hover:text-blue-700 hover:underline text-xs font-mono truncate max-w-xs inline-block" title="${mediaUrl || '暂无'}">${mediaUrl || '暂无'}</a></td>`;
+            html += `<td class="px-4 py-2 text-slate-600">${duration || '-'}</td>`;
+            html += `<td class="px-4 py-2 text-slate-600">${fileSize || '-'}</td>`;
+            html += `<td class="px-4 py-2 text-right">
+                <button onclick="openEditEpisodeModal(${episodeId}, '${episodeName.replace(/'/g, "\\'")}', '${String(mediaUrl).replace(/'/g, "\\'")}', ${mediaType}, ${encoding}, ${episodeNum}, '${duration}', ${fileSize})" class="text-blue-600 hover:text-blue-700 text-sm mr-2">编辑</button>
+                <button onclick="deleteEpisode(${episodeId}, '${episodeName.replace(/'/g, "\\'")}')" class="text-red-600 hover:text-red-700 text-sm">删除</button>
+            </td>`;
+            html += '</tr>';
+        });
+        
+        html += '</tbody></table></div>';
+    } else {
+        html += '<div class="text-center py-8 text-slate-500">暂无子集数据</div>';
+    }
+    html += '</div>';
+    
+    html += '</div>';
+    container.innerHTML = html;
 }
 
-// 更新全选复选框状态
-function updateSelectAllCheckbox() {
-    const checkboxes = document.querySelectorAll('.header-checkbox');
-    const selectAll = document.getElementById('select-all-headers');
-    if (checkboxes.length === 0) {
-        if (selectAll) selectAll.checked = false;
-        return;
+// 按ID导出剧集
+async function exportDramaById(dramaId) {
+    try {
+        window.location.href = `${API_BASE}/dramas/${dramaId}/export`;
+    } catch (error) {
+        showError('导出失败：' + error.message);
     }
-    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-    if (selectAll) selectAll.checked = allChecked;
 }
 
 // 编辑剧头
@@ -1099,8 +592,8 @@ async function deleteDramaHeader(dramaId, dramaName) {
         
         if (result.code === 200) {
             showSuccess('剧头删除成功！');
-            // 重新加载列表
-            await loadAllDramaHeaders(currentPage);
+            // 重新搜索刷新页面
+            searchDramaHeaderDirect();
         } else {
             showError('删除失败：' + (result.message || '未知错误'));
         }
@@ -1108,55 +601,6 @@ async function deleteDramaHeader(dramaId, dramaName) {
         showError('删除失败：' + error.message);
     }
 }
-
-// 批量删除剧头
-async function batchDeleteDramaHeaders() {
-    const checkboxes = document.querySelectorAll('.header-checkbox:checked');
-    const selectedIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
-    
-    if (selectedIds.length === 0) {
-        showError('请至少选择一个剧集');
-        return;
-    }
-    
-    if (!confirm(`确定要删除选中的 ${selectedIds.length} 个剧集吗？此操作不可撤销！`)) {
-        return;
-    }
-    
-    try {
-        // 逐个删除
-        let successCount = 0;
-        let failCount = 0;
-        
-        for (const dramaId of selectedIds) {
-            try {
-                const response = await fetch(`${API_BASE}/dramas/${dramaId}`, {
-                    method: 'DELETE'
-                });
-                const result = await response.json();
-                if (result.code === 200) {
-                    successCount++;
-                } else {
-                    failCount++;
-                }
-            } catch (error) {
-                failCount++;
-            }
-        }
-        
-        if (failCount === 0) {
-            showSuccess(`成功删除 ${successCount} 个剧集！`);
-        } else {
-            showError(`成功删除 ${successCount} 个，失败 ${failCount} 个`);
-        }
-        
-        // 重新加载列表
-        await loadAllDramaHeaders(currentPage);
-    } catch (error) {
-        showError('批量删除失败：' + error.message);
-    }
-}
-
 
 // ==================== 版权方数据管理 ====================
 
@@ -1292,37 +736,15 @@ async function openAddCopyrightModal() {
     document.getElementById('copyright-edit-id').value = '';
     document.getElementById('add-copyright-form').reset();
     
-    // 加载客户列表
-    await loadCustomersForCopyright();
-    
     document.getElementById('add-copyright-modal').classList.remove('hidden');
-}
-
-// 加载客户列表到版权方数据表单
-async function loadCustomersForCopyright() {
-    try {
-        const response = await fetch(`${API_BASE}/customers`);
-        const result = await response.json();
-        
-        if (result.code === 200) {
-            const select = document.getElementById('copyright-customer-id');
-            select.innerHTML = '<option value="">请选择客户</option>';
-            
-            result.data.forEach(customer => {
-                const option = document.createElement('option');
-                option.value = customer.customer_id;
-                option.textContent = customer.customer_name;
-                select.appendChild(option);
-            });
-        }
-    } catch (error) {
-        console.error('加载客户列表失败:', error);
-    }
 }
 
 // 关闭添加版权方数据模态框
 function closeAddCopyrightModal() {
     document.getElementById('add-copyright-modal').classList.add('hidden');
+    // 清空edit-id，防止下次打开时误用
+    document.getElementById('copyright-edit-id').value = '';
+    document.getElementById('add-copyright-form').reset();
 }
 
 // 编辑版权方数据
@@ -1375,20 +797,15 @@ async function editCopyrightContent(id) {
 async function saveCopyrightContent() {
     const editId = document.getElementById('copyright-edit-id').value;
     const mediaName = document.getElementById('copyright-media-name').value.trim();
-    const customerId = document.getElementById('copyright-customer-id').value;
+    
+    console.log('saveCopyrightContent - editId:', editId, 'type:', typeof editId);
     
     if (!mediaName) {
         showError('介质名称不能为空');
         return;
     }
     
-    if (!customerId && !editId) {
-        showError('请选择客户');
-        return;
-    }
-    
     const data = {
-        customer_id: customerId ? parseInt(customerId) : null,
         media_name: mediaName,
         upstream_copyright: document.getElementById('copyright-upstream').value.trim() || null,
         category_level1: document.getElementById('copyright-category1').value.trim() || null,
@@ -1416,9 +833,13 @@ async function saveCopyrightContent() {
         let url = `${API_BASE}/copyright`;
         let method = 'POST';
         
-        if (editId) {
+        // 更严格的判断：editId存在且不为空字符串
+        if (editId && editId.trim() !== '') {
             url = `${API_BASE}/copyright/${editId}`;
             method = 'PUT';
+            console.log('执行更新操作，URL:', url);
+        } else {
+            console.log('执行新增操作，URL:', url);
         }
         
         const response = await fetch(url, {
@@ -1602,14 +1023,18 @@ async function refreshDramaDetail() {
         if (result.code === 200) {
             const header = result.data;
             currentDramaData = header;
+            currentDramaName = header['剧集名称'];
             
             // 获取子集列表
             const episodesResponse = await fetch(`${API_BASE}/dramas/${currentDramaId}/episodes`);
             const episodesResult = await episodesResponse.json();
             const episodes = episodesResult.code === 200 ? episodesResult.data : [];
             
-            // 重新渲染详情页面
-            showDramaDetailPage(header, episodes);
+            // 重新渲染详情（在剧头管理页面内联显示）
+            const resultContainer = document.getElementById('header-search-result');
+            if (resultContainer) {
+                renderDramaDetailInline(header, episodes, resultContainer);
+            }
         }
     } catch (error) {
         showError('刷新失败：' + error.message);

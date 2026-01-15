@@ -5,9 +5,11 @@ import json
 
 from database import get_db
 from utils import build_episode_dict
-from config import EPISODE_DYNAMIC_FIELDS
 
 router = APIRouter(prefix="/api/dramas", tags=["子集管理"])
+
+# 河南移动的子集动态字段（保持兼容）
+EPISODE_DYNAMIC_FIELDS = ['媒体拉取地址', '媒体类型', '编码格式', '集数', '时长', '文件大小']
 
 
 @router.get("/{drama_id}/episodes")

@@ -1,5 +1,6 @@
 import json
 from pypinyin import pinyin, Style
+from config import CUSTOMER_CONFIGS
 
 
 def parse_json(data, field='dynamic_properties'):
@@ -11,7 +12,7 @@ def parse_json(data, field='dynamic_properties'):
 
 
 def build_drama_dict(drama, props=None):
-    """构建剧头数据字典"""
+    """构建剧头数据字典（河南移动格式，保持兼容）"""
     if props is None:
         props = parse_json(drama)
     return {
@@ -37,7 +38,7 @@ def build_drama_dict(drama, props=None):
 
 
 def build_episode_dict(episode, props=None):
-    """构建子集数据字典"""
+    """构建子集数据字典（河南移动格式，保持兼容）"""
     if props is None:
         props = parse_json(episode)
     return {
@@ -67,20 +68,75 @@ def get_pinyin_abbr(name):
     return ''.join(result)
 
 
-def get_content_dir(content_type):
-    """根据内容类型获取媒体目录"""
-    if "教育" in str(content_type):
-        return "mqxt"
-    elif "电竞" in str(content_type):
-        return "rywg"
-    return "shaoer"
+def get_content_dir(content_type, customer_code='henan_mobile'):
+    """根据内容类型和客户获取媒体目录"""
+    config = CUSTOMER_CONFIGS.get(customer_code, {})
+    mapping = config.get('content_dir_map', {})
+    
+    if content_type and mapping:
+        for key, value in mapping.items():
+            if key != '_default' and key in str(content_type):
+                return value
+    return mapping.get('_default', 'shaoer')
 
 
-def get_product_category(content_type):
-    """根据内容类型获取产品分类"""
-    if content_type:
-        if "教育" in str(content_type):
-            return 1
-        elif "电竞" in str(content_type):
-            return 2
-    return 3
+def get_product_category(content_type, customer_code='henan_mobile'):
+    """根据内容类型和客户获取产品分类"""
+    config = CUSTOMER_CONFIGS.get(customer_code, {})
+    mapping = config.get('product_category_map', {})
+    
+    if content_type and mapping:
+        for key, value in mapping.items():
+            if key != '_default' and key in str(content_type):
+                return value
+    return mapping.get('_default', 3)
+
+
+def get_image_url(abbr, image_type, customer_code='henan_mobile'):
+    """生成图片URL"""
+    config = CUSTOMER_CONFIGS.get(customer_code, {})
+    url_templates = config.get('image_url', {})
+    template = url_templates.get(image_type, '')
+    return template.format(abbr=abbr) if template else ''
+
+
+def get_media_url(abbr, episode_num, content_dir, customer_code='henan_mobile'):
+    """生成媒体拉取地址"""
+    config = CUSTOMER_CONFIGS.get(customer_code, {})
+    template = config.get('media_url_template', '')
+    return template.format(dir=content_dir, abbr=abbr, ep=episode_num) if template else ''
+
+
+def format_duration(seconds, format_type='HHMMSS00'):
+    """格式化时长
+    format_type: 'HHMMSS00' | 'minutes' | 'HH:MM:SS'
+    """
+    if not seconds:
+        return 0 if format_type == 'minutes' else '00:00:00' if format_type == 'HH:MM:SS' else '00000000'
+    
+    try:
+        total_seconds = int(seconds)
+    except (ValueError, TypeError):
+        return 0 if format_type == 'minutes' else '00:00:00' if format_type == 'HH:MM:SS' else '00000000'
+    
+    if format_type == 'minutes':
+        return total_seconds // 60
+    
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+    
+    if format_type == 'HH:MM:SS':
+        return f'{hours:02d}:{minutes:02d}:{secs:02d}'
+    else:  # HHMMSS00
+        return f'{hours:02d}{minutes:02d}{secs:02d}00'
+
+
+def format_datetime(date_str):
+    """格式化日期时间为 YYYY-MM-DD HH:mm:ss"""
+    if not date_str:
+        return ''
+    # 如果已经是正确格式，直接返回
+    if isinstance(date_str, str) and len(date_str) >= 10:
+        return date_str
+    return str(date_str)

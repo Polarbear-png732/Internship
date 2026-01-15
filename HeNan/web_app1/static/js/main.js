@@ -6,8 +6,11 @@ let pageSize = 10;
 let currentDramaName = '';
 let currentDramaId = null;
 let currentCustomerId = null;
+let currentCustomerCode = null;  // 客户代码（如 henan_mobile）
 let currentCustomerName = '';
 let currentDramaData = null;
+let currentDramaColumns = [];    // 当前客户的剧头列配置
+let currentEpisodeColumns = [];  // 当前客户的子集列配置
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
@@ -99,7 +102,7 @@ function renderCustomerTable(customers) {
     const tbody = document.getElementById('customer-table-body');
     
     if (!customers || customers.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="px-6 py-8 text-center text-slate-500">暂无用户数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">暂无用户数据</td></tr>';
         return;
     }
     
@@ -127,7 +130,6 @@ function renderCustomerTable(customers) {
                         <div>
                             <div class="font-semibold text-slate-900 text-base flex items-center gap-2">
                                 ${customer.customer_name}
-                                <span class="text-xs font-normal text-slate-400">ID: ${customer.customer_id}</span>
                             </div>
                             ${customer.remark ? `<div class="text-sm text-slate-500 mt-1 flex items-center gap-1">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-slate-400">
@@ -146,8 +148,13 @@ function renderCustomerTable(customers) {
                         </span>
                     </div>
                 </td>
+                <td class="px-6 py-5 text-slate-600 hidden sm:table-cell">
+                    <span class="px-2 py-1 bg-green-100 text-green-700 rounded-md text-sm">
+                        ${customer.drama_count || 0} 部剧集
+                    </span>
+                </td>
                 <td class="px-6 py-5 text-right">
-                    <button onclick="viewCustomerDramas(${customer.customer_id}, '${customer.customer_name.replace(/'/g, "\\'")}')" 
+                    <button onclick="viewCustomerDramas('${customer.customer_code}', '${customer.customer_name.replace(/'/g, "\\'")}')" 
                         class="text-blue-600 hover:text-blue-700 font-semibold text-sm inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 px-4 py-2 rounded-lg transition-all shadow-sm hover:shadow-md group-hover:scale-105">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
@@ -165,9 +172,10 @@ function renderCustomerTable(customers) {
 }
 
 // 查看用户的剧集列表
-function viewCustomerDramas(customerId, customerName) {
-    currentCustomerId = customerId;
+function viewCustomerDramas(customerCode, customerName) {
+    currentCustomerCode = customerCode;
     currentCustomerName = customerName;
+    currentCustomerId = customerCode;  // 兼容旧代码
     
     // 切换到剧头管理页面
     showPage('drama-header-management');
@@ -178,10 +186,15 @@ function viewCustomerDramas(customerId, customerName) {
         headerTitle.textContent = `${customerName} - 剧头管理`;
     }
     
-    // 清空搜索框
+    // 清空搜索框和结果
     const searchInput = document.getElementById('header-search-input');
     if (searchInput) {
         searchInput.value = '';
+    }
+    const resultContainer = document.getElementById('header-search-result');
+    if (resultContainer) {
+        resultContainer.classList.add('hidden');
+        resultContainer.innerHTML = '';
     }
 }
 
@@ -343,9 +356,15 @@ async function searchDramaHeaderDirect() {
         return;
     }
     
+    // 如果没有选择客户，提示用户
+    if (!currentCustomerCode) {
+        showError('请先从用户列表选择一个客户');
+        return;
+    }
+    
     try {
-        // 使用搜索API获取剧集详情
-        const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(keyword)}`);
+        // 使用搜索API获取剧集详情，传递customer_code参数
+        const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(keyword)}&customer_code=${encodeURIComponent(currentCustomerCode)}`);
         
         if (!response.ok) {
             const error = await response.json();
@@ -370,12 +389,19 @@ async function searchDramaHeaderDirect() {
             const header = result.data.header;
             const episodes = result.data.episodes || [];
             
+            // 保存列配置
+            currentDramaColumns = result.data.drama_columns || [];
+            currentEpisodeColumns = result.data.episode_columns || [];
+            
             // 设置当前剧集信息
-            currentDramaId = header['剧头id'];
-            currentDramaName = header['剧集名称'];
+            // 获取第一个列名作为ID字段
+            const idField = currentDramaColumns[0] || '剧头id';
+            const nameField = currentDramaColumns[1] || '剧集名称';
+            currentDramaId = header[idField];
+            currentDramaName = String(header[nameField] || '');
             currentDramaData = header;
             
-            // 在当前页面下方显示详情
+            // 在当前页面下方显示详情（使用动态列配置）
             renderDramaDetailInline(header, episodes, resultContainer);
             resultContainer.classList.remove('hidden');
         } else {
@@ -391,8 +417,15 @@ async function searchDramaHeaderDirect() {
     }
 }
 
-// 在剧头管理页面内联显示剧集详情
+// 在剧头管理页面内联显示剧集详情（支持动态列配置）
 function renderDramaDetailInline(header, episodes, container) {
+    // 获取ID和名称字段 - 江苏用 sId/seriesName，其他用 剧头id/剧集名称
+    const idField = currentDramaColumns[0] || '剧头id';
+    const nameField = currentDramaColumns[1] || '剧集名称';
+    const dramaId = header[idField] || '';
+    // 确保 dramaName 是字符串
+    const dramaName = String(header[nameField] || '');
+    
     let html = '<div class="space-y-6">';
     
     // 剧集基本信息卡片
@@ -400,119 +433,77 @@ function renderDramaDetailInline(header, episodes, container) {
     html += '<div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-200">';
     html += '<div class="flex items-center gap-3">';
     html += '<div class="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold text-xl shadow-lg">';
-    html += (header['剧集名称'] ? header['剧集名称'].charAt(0) : '剧');
+    html += (dramaName && dramaName.length > 0 ? dramaName.charAt(0) : '剧');
     html += '</div>';
-    html += '<div><h3 class="text-xl font-bold text-slate-900">' + (header['剧集名称'] || '剧集详情') + '</h3>';
-    html += '<p class="text-sm text-slate-500 mt-1">剧集ID: ' + (header['剧头id'] || '-') + '</p></div>';
+    html += '<div><h3 class="text-xl font-bold text-slate-900">' + dramaName + '</h3>';
+    html += '<p class="text-sm text-slate-500 mt-1">' + idField + ': ' + dramaId + ' | ' + currentCustomerName + '</p></div>';
     html += '</div>';
     html += '<div class="flex items-center gap-2">';
-    html += `<button onclick="editDramaHeader(${header['剧头id']}, '${(header['剧集名称'] || '').replace(/'/g, "\\'")}')" 
-        class="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 px-3 py-1.5 rounded-lg transition-all">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-        </svg>
-        编辑
-    </button>`;
-    html += `<button onclick="exportDramaById(${header['剧头id']})" 
+    html += `<button onclick="exportDramaById(${dramaId})" 
         class="text-green-600 hover:text-green-700 font-medium text-sm inline-flex items-center gap-1.5 bg-green-50 hover:bg-green-100 border border-green-200 hover:border-green-300 px-3 py-1.5 rounded-lg transition-all">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" x2="12" y1="15" y2="3"/>
         </svg>
-        导出
+        导出Excel
     </button>`;
     html += '</div></div>';
     
-    // 基本信息网格
+    // 基本信息网格 - 使用动态列配置（跳过前两个ID和名称字段）
     html += '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">';
-    const fields = [
-        { label: '作者列表', key: '作者列表' },
-        { label: '清晰度', key: '清晰度' },
-        { label: '语言', key: '语言' },
-        { label: '主演', key: '主演' },
-        { label: '内容类型', key: '内容类型' },
-        { label: '上映年份', key: '上映年份' },
-        { label: '关键字', key: '关键字' },
-        { label: '评分', key: '评分' },
-        { label: '总集数', key: '总集数' },
-        { label: '产品分类', key: '产品分类' },
-        { label: '版权', key: '版权' },
-        { label: '二级分类', key: '二级分类' }
-    ];
+    const displayFields = currentDramaColumns.slice(2);  // 跳过ID和名称
     
-    fields.forEach(field => {
-        const value = header[field.key] !== null && header[field.key] !== undefined ? header[field.key] : '-';
+    displayFields.forEach(fieldName => {
+        const value = header[fieldName] !== null && header[fieldName] !== undefined ? header[fieldName] : '-';
+        // 对于URL类型的字段，显示为链接
+        const isUrl = String(value).startsWith('http') || String(value).startsWith('ftp');
+        const displayValue = isUrl 
+            ? `<a href="${value}" target="_blank" class="text-blue-600 hover:underline text-xs truncate block" title="${value}">查看</a>`
+            : value;
+        
         html += `<div class="bg-white border border-slate-200 rounded-lg p-3">
-            <div class="text-xs font-medium text-slate-500 mb-1">${field.label}</div>
-            <div class="text-sm font-semibold text-slate-900">${value}</div>
+            <div class="text-xs font-medium text-slate-500 mb-1">${fieldName}</div>
+            <div class="text-sm font-semibold text-slate-900 truncate" title="${value}">${displayValue}</div>
         </div>`;
     });
     html += '</div>';
-    
-    // 推荐语和描述
-    if (header['推荐语']) {
-        html += `<div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-4">
-            <div class="text-xs font-medium text-blue-600 mb-1">推荐语</div>
-            <div class="text-sm text-blue-800">${header['推荐语']}</div>
-        </div>`;
-    }
-    if (header['描述']) {
-        html += `<div class="bg-slate-50 border border-slate-200 rounded-lg p-4 mt-4">
-            <div class="text-xs font-medium text-slate-600 mb-1">描述</div>
-            <div class="text-sm text-slate-700">${header['描述']}</div>
-        </div>`;
-    }
     html += '</div>';
     
     // 子集信息
     html += '<div class="bg-gradient-to-br from-white to-indigo-50 border border-slate-200 rounded-xl p-6 shadow-lg">';
     html += '<div class="flex items-center justify-between mb-4 pb-4 border-b border-slate-200">';
     html += '<h3 class="text-lg font-bold text-slate-900">子集信息 (' + episodes.length + ' 集)</h3>';
-    html += `<button onclick="openAddEpisodeModal(${header['剧头id']})" 
-        class="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 px-3 py-1.5 rounded-lg transition-all">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" x2="12" y1="5" y2="19"/>
-            <line x1="5" x2="19" y1="12" y2="12"/>
-        </svg>
-        添加子集
-    </button>`;
     html += '</div>';
     
     if (episodes.length > 0) {
         html += '<div class="overflow-x-auto"><table class="w-full text-left text-sm">';
         html += '<thead><tr class="bg-slate-100 border-b border-slate-200">';
-        html += '<th class="px-4 py-2 font-semibold text-slate-700">集数ID</th>';
-        html += '<th class="px-4 py-2 font-semibold text-slate-700">节目名称</th>';
-        html += '<th class="px-4 py-2 font-semibold text-slate-700">媒体拉取地址</th>';
-        html += '<th class="px-4 py-2 font-semibold text-slate-700">时长</th>';
-        html += '<th class="px-4 py-2 font-semibold text-slate-700">文件大小</th>';
-        html += '<th class="px-4 py-2 font-semibold text-slate-700 text-right">操作</th>';
+        
+        // 使用动态列配置生成表头
+        currentEpisodeColumns.forEach(colName => {
+            html += `<th class="px-4 py-2 font-semibold text-slate-700 whitespace-nowrap">${colName}</th>`;
+        });
         html += '</tr></thead><tbody>';
         
         episodes.forEach((ep, index) => {
-            // 支持两种数据格式：中文字段名（by-name API）和英文字段名（episodes API）
-            const episodeId = ep['子集id'] || ep.episode_id || 0;
-            const episodeName = ep['节目名称'] || ep.episode_name || '';
-            const mediaUrl = ep['媒体拉取地址'] || (ep.dynamic_properties && ep.dynamic_properties['媒体拉取地址']) || '';
-            const mediaType = ep['媒体类型'] || (ep.dynamic_properties && ep.dynamic_properties['媒体类型']) || 0;
-            const encoding = ep['编码格式'] || (ep.dynamic_properties && ep.dynamic_properties['编码格式']) || 0;
-            const episodeNum = ep['集数'] || (ep.dynamic_properties && ep.dynamic_properties['集数']) || 0;
-            const duration = ep['时长'] || (ep.dynamic_properties && ep.dynamic_properties['时长']) || 0;
-            const fileSize = ep['文件大小'] || (ep.dynamic_properties && ep.dynamic_properties['文件大小']) || 0;
-            
             const rowClass = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50';
             html += `<tr class="${rowClass} border-b border-slate-100 hover:bg-blue-50/50">`;
-            html += `<td class="px-4 py-2 text-slate-600">${episodeId}</td>`;
-            html += `<td class="px-4 py-2 font-medium text-slate-900">${episodeName}</td>`;
-            html += `<td class="px-4 py-2"><a href="${mediaUrl || '#'}" target="_blank" class="text-blue-600 hover:text-blue-700 hover:underline text-xs font-mono truncate max-w-xs inline-block" title="${mediaUrl || '暂无'}">${mediaUrl || '暂无'}</a></td>`;
-            html += `<td class="px-4 py-2 text-slate-600">${duration || '-'}</td>`;
-            html += `<td class="px-4 py-2 text-slate-600">${fileSize || '-'}</td>`;
-            html += `<td class="px-4 py-2 text-right">
-                <button onclick="openEditEpisodeModal(${episodeId}, '${episodeName.replace(/'/g, "\\'")}', '${String(mediaUrl).replace(/'/g, "\\'")}', ${mediaType}, ${encoding}, ${episodeNum}, '${duration}', ${fileSize})" class="text-blue-600 hover:text-blue-700 text-sm mr-2">编辑</button>
-                <button onclick="deleteEpisode(${episodeId}, '${episodeName.replace(/'/g, "\\'")}')" class="text-red-600 hover:text-red-700 text-sm">删除</button>
-            </td>`;
+            
+            // 使用动态列配置生成单元格
+            currentEpisodeColumns.forEach(colName => {
+                let value = ep[colName];
+                if (value === null || value === undefined) value = '-';
+                
+                // 对于URL类型的字段，显示为链接
+                const isUrl = String(value).startsWith('http') || String(value).startsWith('ftp');
+                if (isUrl) {
+                    html += `<td class="px-4 py-2"><a href="${value}" target="_blank" class="text-blue-600 hover:text-blue-700 hover:underline text-xs font-mono truncate max-w-xs inline-block" title="${value}">${value.length > 40 ? value.substring(0, 40) + '...' : value}</a></td>`;
+                } else {
+                    html += `<td class="px-4 py-2 text-slate-600 whitespace-nowrap">${value}</td>`;
+                }
+            });
+            
             html += '</tr>';
         });
         

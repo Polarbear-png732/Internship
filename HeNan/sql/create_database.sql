@@ -34,12 +34,14 @@ CREATE TABLE customer (
 CREATE TABLE drama_main (
     drama_id INT NOT NULL AUTO_INCREMENT COMMENT '剧集ID，自增主键',
     customer_id INT DEFAULT NULL COMMENT '客户ID（可为空，空表示所有客户可见）',
+    customer_code VARCHAR(50) DEFAULT 'henan_mobile' COMMENT '客户代码（henan_mobile/shandong_mobile/gansu_mobile/jiangsu_newmedia）',
     drama_name VARCHAR(500) NOT NULL COMMENT '剧集名称',
     dynamic_properties JSON DEFAULT NULL COMMENT '动态属性，存储剧集的所有属性',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (drama_id),
-    KEY fk_drama_customer (customer_id)
+    KEY fk_drama_customer (customer_id),
+    KEY idx_customer_code (customer_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='剧集主表，使用JSON存储动态属性';
 
 -- ============================================
@@ -62,7 +64,7 @@ CREATE TABLE drama_episode (
 -- ============================================
 CREATE TABLE copyright_content (
     id INT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    drama_id INT DEFAULT NULL COMMENT '关联的剧集ID',
+    drama_ids JSON DEFAULT NULL COMMENT '各客户的剧头ID，如{"henan_mobile":101,"shandong_mobile":102}',
     serial_number INT DEFAULT NULL COMMENT '序号',
     upstream_copyright VARCHAR(200) DEFAULT NULL COMMENT '上游版权方',
     media_name VARCHAR(500) DEFAULT NULL COMMENT '介质名称',
@@ -97,9 +99,7 @@ CREATE TABLE copyright_content (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (id),
-    KEY idx_drama_id (drama_id),
-    UNIQUE KEY idx_media_name_unique (media_name),
-    CONSTRAINT fk_copyright_drama FOREIGN KEY (drama_id) REFERENCES drama_main(drama_id) ON DELETE CASCADE ON UPDATE CASCADE
+    UNIQUE KEY idx_media_name_unique (media_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='版权方数据库表';
 
 -- ============================================

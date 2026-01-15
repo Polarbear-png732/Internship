@@ -394,9 +394,17 @@ async function searchDramaHeaderDirect() {
             currentEpisodeColumns = result.data.episode_columns || [];
             
             // 设置当前剧集信息
-            // 获取第一个列名作为ID字段
-            const idField = currentDramaColumns[0] || '剧头id';
-            const nameField = currentDramaColumns[1] || '剧集名称';
+            // 根据客户类型获取正确的ID和名称字段
+            let idField, nameField;
+            if (currentCustomerCode === 'jiangsu_newmedia') {
+                // 江苏: sId是数据库ID, seriesName是名称
+                idField = 'sId';
+                nameField = 'seriesName';
+            } else {
+                // 其他客户: 第一列是ID, 第二列是名称
+                idField = currentDramaColumns[0] || '剧头id';
+                nameField = currentDramaColumns[1] || '剧集名称';
+            }
             currentDramaId = header[idField];
             currentDramaName = String(header[nameField] || '');
             currentDramaData = header;
@@ -419,11 +427,53 @@ async function searchDramaHeaderDirect() {
 
 // 在剧头管理页面内联显示剧集详情（支持动态列配置）
 function renderDramaDetailInline(header, episodes, container) {
-    // 获取ID和名称字段 - 江苏用 sId/seriesName，其他用 剧头id/剧集名称
-    const idField = currentDramaColumns[0] || '剧头id';
-    const nameField = currentDramaColumns[1] || '剧集名称';
+    // 江苏字段名中英文映射
+    const jiangsuFieldMap = {
+        'vod_no': '序号',
+        'sId': '剧头ID',
+        'appId': '应用ID',
+        'seriesName': '剧集名称',
+        'volumnCount': '集数',
+        'description': '简介',
+        'seriesFlag': '剧头类型',
+        'sortName': '搜索关键字',
+        'programType': '栏目类型',
+        'releaseYear': '上映年份',
+        'language': '语言',
+        'rating': '评分',
+        'originalCountry': '国家',
+        'pgmCategory': '分类',
+        'pgmSedClass': '二级分类',
+        'director': '导演',
+        'actorDisplay': '演员',
+        'vod_info_no': '序号',
+        'pId': '子集ID',
+        'programName': '节目名称',
+        'type': '类型',
+        'fileURL': '文件地址',
+        'duration': '时长',
+        'bitRateType': '比特率',
+        'mediaSpec': '视音频参数'
+    };
+    
+    // 获取字段显示名称
+    const getDisplayName = (fieldName) => {
+        if (currentCustomerCode === 'jiangsu_newmedia' && jiangsuFieldMap[fieldName]) {
+            return jiangsuFieldMap[fieldName];
+        }
+        return fieldName;
+    };
+    
+    // 根据客户类型获取正确的ID和名称字段
+    let idField, nameField;
+    if (currentCustomerCode === 'jiangsu_newmedia') {
+        idField = 'sId';
+        nameField = 'seriesName';
+    } else {
+        idField = currentDramaColumns[0] || '剧头id';
+        nameField = currentDramaColumns[1] || '剧集名称';
+    }
     const dramaId = header[idField] || '';
-    // 确保 dramaName 是字符串
     const dramaName = String(header[nameField] || '');
     
     let html = '<div class="space-y-6">';
@@ -436,7 +486,7 @@ function renderDramaDetailInline(header, episodes, container) {
     html += (dramaName && dramaName.length > 0 ? dramaName.charAt(0) : '剧');
     html += '</div>';
     html += '<div><h3 class="text-xl font-bold text-slate-900">' + dramaName + '</h3>';
-    html += '<p class="text-sm text-slate-500 mt-1">' + idField + ': ' + dramaId + ' | ' + currentCustomerName + '</p></div>';
+    html += '<p class="text-sm text-slate-500 mt-1">' + getDisplayName(idField) + ': ' + dramaId + ' | ' + currentCustomerName + '</p></div>';
     html += '</div>';
     html += '<div class="flex items-center gap-2">';
     html += `<button onclick="exportDramaById(${dramaId})" 
@@ -450,20 +500,24 @@ function renderDramaDetailInline(header, episodes, container) {
     </button>`;
     html += '</div></div>';
     
-    // 基本信息网格 - 使用动态列配置（跳过前两个ID和名称字段）
+    // 基本信息网格 - 使用动态列配置（跳过序号、ID和名称字段）
     html += '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">';
-    const displayFields = currentDramaColumns.slice(2);  // 跳过ID和名称
+    // 跳过序号、ID、名称等字段
+    const skipFields = currentCustomerCode === 'jiangsu_newmedia' 
+        ? ['vod_no', 'sId', 'seriesName'] 
+        : currentDramaColumns.slice(0, 2);
+    const displayFields = currentDramaColumns.filter(f => !skipFields.includes(f));
     
     displayFields.forEach(fieldName => {
         const value = header[fieldName] !== null && header[fieldName] !== undefined ? header[fieldName] : '-';
         // 对于URL类型的字段，显示为链接
-        const isUrl = String(value).startsWith('http') || String(value).startsWith('ftp');
+        const isUrl = String(value).startsWith('http') || String(value).startsWith('ftp') || String(value).startsWith('/');
         const displayValue = isUrl 
             ? `<a href="${value}" target="_blank" class="text-blue-600 hover:underline text-xs truncate block" title="${value}">查看</a>`
             : value;
         
         html += `<div class="bg-white border border-slate-200 rounded-lg p-3">
-            <div class="text-xs font-medium text-slate-500 mb-1">${fieldName}</div>
+            <div class="text-xs font-medium text-slate-500 mb-1">${getDisplayName(fieldName)}</div>
             <div class="text-sm font-semibold text-slate-900 truncate" title="${value}">${displayValue}</div>
         </div>`;
     });
@@ -480,9 +534,9 @@ function renderDramaDetailInline(header, episodes, container) {
         html += '<div class="overflow-x-auto"><table class="w-full text-left text-sm">';
         html += '<thead><tr class="bg-slate-100 border-b border-slate-200">';
         
-        // 使用动态列配置生成表头
+        // 使用动态列配置生成表头（显示中文名称）
         currentEpisodeColumns.forEach(colName => {
-            html += `<th class="px-4 py-2 font-semibold text-slate-700 whitespace-nowrap">${colName}</th>`;
+            html += `<th class="px-4 py-2 font-semibold text-slate-700 whitespace-nowrap">${getDisplayName(colName)}</th>`;
         });
         html += '</tr></thead><tbody>';
         

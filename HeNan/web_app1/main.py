@@ -6,6 +6,10 @@ from pathlib import Path
 
 from routers import customers, dramas, episodes, copyright
 
+# ============================================================
+# FastAPI 应用
+# ============================================================
+
 app = FastAPI(title="运营管理平台", description="剧集信息管理系统")
 
 # 配置CORS

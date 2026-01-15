@@ -233,10 +233,16 @@ async def export_drama_to_excel(drama_id: int):
             
             # 构建剧头数据
             header_dict = _build_drama_display_dict(drama, customer_code)
-            # 导出时清空ID字段
             drama_columns = _get_column_names(customer_code, 'drama')
-            if drama_columns and drama_columns[0] in header_dict:
+            
+            # 江苏新媒体：设置序号为1，sId留空
+            if customer_code == 'jiangsu_newmedia':
+                header_dict['vod_no'] = 1  # 单个剧集导出，序号为1
+                header_dict['sId'] = None  # sId留空
+            elif drama_columns and drama_columns[0] in header_dict:
+                # 其他客户：清空ID字段
                 header_dict[drama_columns[0]] = ''
+            
             header_df = pd.DataFrame([header_dict], columns=drama_columns)
             
             # 获取子集
@@ -248,11 +254,19 @@ async def export_drama_to_excel(drama_id: int):
             
             episode_columns = _get_column_names(customer_code, 'episode')
             episode_list = []
-            for episode in episodes:
+            for i, episode in enumerate(episodes, 1):
                 ep_data = _build_episode_display_dict(episode, customer_code)
-                # 清空ID字段
-                if episode_columns and episode_columns[0] in ep_data:
+                
+                # 江苏新媒体：设置序号，vod_no关联剧头序号，sId和pId留空
+                if customer_code == 'jiangsu_newmedia':
+                    ep_data['vod_info_no'] = i  # 子集序号
+                    ep_data['vod_no'] = 1       # 关联剧头序号（单个剧集导出为1）
+                    ep_data['sId'] = None       # 剧头Id留空
+                    ep_data['pId'] = None       # 子集Id留空
+                elif episode_columns and episode_columns[0] in ep_data:
+                    # 其他客户：清空ID字段
                     ep_data[episode_columns[0]] = ''
+                
                 episode_list.append(ep_data)
             subset_df = pd.DataFrame(episode_list, columns=episode_columns)
         
@@ -264,11 +278,19 @@ async def export_drama_to_excel(drama_id: int):
             # 江苏新媒体需要图片表
             if customer_code == 'jiangsu_newmedia':
                 picture_data = _build_picture_data(drama, customer_code)
+                # 填充图片序号
+                for i, pic in enumerate(picture_data, 1):
+                    pic['picture_no'] = i
+                    pic['vod_no'] = 1  # 关联剧头序号（单个剧集导出为1）
                 picture_columns = [col['col'] for col in config.get('picture_columns', [])]
                 picture_df = pd.DataFrame(picture_data, columns=picture_columns)
                 picture_df.to_excel(writer, sheet_name='图片', index=False)
             
-            _format_excel_sheets(writer, customer_code)
+            # 江苏新媒体使用特殊的两行表头格式
+            if customer_code == 'jiangsu_newmedia':
+                _format_jiangsu_excel(writer)
+            else:
+                _format_excel_sheets(writer, customer_code)
         
         output.seek(0)
         customer_name = config.get('name', '')

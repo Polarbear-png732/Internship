@@ -5,3 +5,5 @@ pymysql
 openpyxl
 python-multipart
 pypinyin
+pydantic
+DBUtils

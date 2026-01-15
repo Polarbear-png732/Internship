@@ -30,11 +30,12 @@ EPISODE_DYNAMIC_FIELDS = ['媒体拉取地址', '媒体类型', '编码格式', 
 
 # 版权方数据字段
 COPYRIGHT_FIELDS = [
-    'media_name', 'upstream_copyright', 'category_level1', 'category_level1_henan',
-    'category_level2_henan', 'episode_count', 'single_episode_duration', 'total_duration',
-    'production_year', 'production_region', 'language', 'language_henan', 'country',
-    'director', 'screenwriter', 'cast_members', 'recommendation', 'synopsis',
-    'keywords', 'video_quality', 'license_number', 'rating', 'exclusive_status',
-    'copyright_start_date', 'copyright_end_date', 'authorization_region',
-    'authorization_platform', 'cooperation_mode'
+    'media_name', 'upstream_copyright', 'category_level1', 'category_level2',
+    'category_level1_henan', 'category_level2_henan', 'episode_count', 
+    'single_episode_duration', 'total_duration', 'production_year', 'production_region', 
+    'language', 'language_henan', 'country', 'director', 'screenwriter', 'cast_members', 
+    'recommendation', 'synopsis', 'keywords', 'video_quality', 'license_number', 
+    'rating', 'exclusive_status', 'copyright_start_date', 'copyright_end_date',
+    'category_level2_shandong', 'authorization_region', 'authorization_platform', 
+    'cooperation_mode'
 ]

@@ -636,12 +636,17 @@ function searchCopyrightContent() {
     loadCopyrightList(1);
 }
 
+// 导出版权方数据
+function exportCopyrightData() {
+    window.location.href = '/api/copyright/export';
+}
+
 // 渲染版权方数据表格
 function renderCopyrightTable(items) {
     const tbody = document.getElementById('copyright-table-body');
     
     if (!items || items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="30" class="px-6 py-12 text-center text-slate-500"><div class="flex flex-col items-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg><span class="text-base">暂无版权方数据</span></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="32" class="px-6 py-12 text-center text-slate-500"><div class="flex flex-col items-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg><span class="text-base">暂无版权方数据</span></div></td></tr>';
         return;
     }
     
@@ -657,6 +662,7 @@ function renderCopyrightTable(items) {
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${truncate(item.upstream_copyright, 15)}</td>
                 <td class="px-4 py-3 text-sm font-medium text-slate-900 whitespace-nowrap">${truncate(item.media_name, 20)}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level1 || '-'}</td>
+                <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level2 || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level1_henan || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level2_henan || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.episode_count || '-'}</td>
@@ -682,6 +688,7 @@ function renderCopyrightTable(items) {
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.exclusive_status || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.copyright_start_date || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.copyright_end_date || '-'}</td>
+                <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level2_shandong || '-'}</td>
                 <td class="px-4 py-3 text-right whitespace-nowrap sticky right-0 ${rowClass} group-hover:bg-blue-50/50">
                     <div class="flex items-center justify-end gap-2">
                         <button onclick="editCopyrightContent(${item.id})" 
@@ -768,8 +775,10 @@ async function editCopyrightContent(id) {
             document.getElementById('copyright-media-name').value = item.media_name || '';
             document.getElementById('copyright-upstream').value = item.upstream_copyright || '';
             document.getElementById('copyright-category1').value = item.category_level1 || '';
+            document.getElementById('copyright-category2').value = item.category_level2 || '';
             document.getElementById('copyright-category1-henan').value = item.category_level1_henan || '';
             document.getElementById('copyright-category2-henan').value = item.category_level2_henan || '';
+            document.getElementById('copyright-category2-shandong').value = item.category_level2_shandong || '';
             document.getElementById('copyright-episode-count').value = item.episode_count || '';
             document.getElementById('copyright-single-duration').value = item.single_episode_duration || '';
             document.getElementById('copyright-total-duration').value = item.total_duration || '';
@@ -809,8 +818,10 @@ async function saveCopyrightContent() {
         media_name: mediaName,
         upstream_copyright: document.getElementById('copyright-upstream').value.trim() || null,
         category_level1: document.getElementById('copyright-category1').value.trim() || null,
+        category_level2: document.getElementById('copyright-category2').value.trim() || null,
         category_level1_henan: document.getElementById('copyright-category1-henan').value.trim() || null,
         category_level2_henan: document.getElementById('copyright-category2-henan').value.trim() || null,
+        category_level2_shandong: document.getElementById('copyright-category2-shandong').value.trim() || null,
         episode_count: parseInt(document.getElementById('copyright-episode-count').value) || null,
         single_episode_duration: parseFloat(document.getElementById('copyright-single-duration').value) || null,
         total_duration: parseFloat(document.getElementById('copyright-total-duration').value) || null,

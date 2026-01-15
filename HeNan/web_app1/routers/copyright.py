@@ -1,13 +1,54 @@
 from fastapi import APIRouter, HTTPException, Query, Body
+from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
 import pymysql
+import pandas as pd
 import json
+from io import BytesIO
+from urllib.parse import quote
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment
 
 from database import get_db
 from utils import get_pinyin_abbr, get_content_dir, get_product_category
 from config import COPYRIGHT_FIELDS
 
 router = APIRouter(prefix="/api/copyright", tags=["版权管理"])
+
+# 导出 Excel 的列名映射
+COPYRIGHT_EXPORT_COLUMNS = {
+    'id': '序号',
+    'upstream_copyright': '上游版权方',
+    'media_name': '介质名称',
+    'category_level1': '一级分类',
+    'category_level2': '二级分类',
+    'category_level1_henan': '一级分类-河南',
+    'category_level2_henan': '二级分类-河南',
+    'episode_count': '集数',
+    'single_episode_duration': '单集时长',
+    'total_duration': '总时长',
+    'production_year': '出品年代',
+    'production_region': '出品地区',
+    'language': '语言',
+    'language_henan': '语言-河南',
+    'country': '国家',
+    'director': '导演',
+    'screenwriter': '编剧',
+    'cast_members': '主演',
+    'recommendation': '推荐语',
+    'synopsis': '简介',
+    'keywords': '关键词',
+    'video_quality': '视频质量',
+    'license_number': '许可证号',
+    'rating': '评分',
+    'exclusive_status': '独家状态',
+    'copyright_start_date': '版权开始日期',
+    'copyright_end_date': '版权结束日期',
+    'category_level2_shandong': '二级分类-山东',
+    'authorization_region': '授权区域',
+    'authorization_platform': '授权平台',
+    'cooperation_mode': '合作方式'
+}
 
 
 @router.get("")
@@ -39,6 +80,53 @@ async def get_copyright_list(
                 "data": {"list": items, "total": total, "page": page, "page_size": page_size,
                         "total_pages": (total + page_size - 1) // page_size}
             }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/export")
+async def export_copyright_to_excel():
+    """导出所有版权方数据为Excel文件"""
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            cursor.execute("SELECT * FROM copyright_content ORDER BY id")
+            items = cursor.fetchall()
+        
+        # 转换列名为中文
+        export_data = []
+        for item in items:
+            row = {}
+            for db_col, cn_col in COPYRIGHT_EXPORT_COLUMNS.items():
+                row[cn_col] = item.get(db_col, '')
+            export_data.append(row)
+        
+        df = pd.DataFrame(export_data, columns=list(COPYRIGHT_EXPORT_COLUMNS.values()))
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='版权方数据', index=False)
+            
+            sheet = writer.book['版权方数据']
+            sheet.row_dimensions[1].height = 30
+            for idx, col in enumerate(df.columns, 1):
+                col_letter = get_column_letter(idx)
+                col_width = sum(2 if ord(c) > 127 else 1 for c in str(col))
+                max_width = col_width
+                for row_idx, value in enumerate(df[col], 2):
+                    if value is not None:
+                        data_width = sum(2 if ord(c) > 127 else 1 for c in str(value))
+                        max_width = max(max_width, min(data_width, 50))
+                        sheet.cell(row=row_idx, column=idx).alignment = Alignment(vertical='center')
+                sheet.cell(row=1, column=idx).alignment = Alignment(vertical='center', horizontal='center')
+                sheet.column_dimensions[col_letter].width = max_width * 1.2 + 2
+        
+        output.seek(0)
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote('版权方数据.xlsx')}"}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -232,7 +232,7 @@ class ExcelImportService:
                     
                     # 为每个客户准备剧头数据
                     for cust in enabled_customers:
-                        props = self._build_drama_props(cleaned, media_name, cust, CUSTOMER_CONFIGS, get_pinyin_abbr, get_image_url, get_product_category, format_datetime)
+                        props = self._build_drama_props(cleaned, media_name, cust, CUSTOMER_CONFIGS, get_pinyin_abbr, get_image_url, get_product_category, format_datetime, scan_results)
                         drama_batch.append((cust, media_name, json.dumps(props, ensure_ascii=False), cleaned))
                     
                     copyright_values.append(cleaned)
@@ -318,7 +318,7 @@ class ExcelImportService:
             'size': int(r['size_bytes'] or 0)
         } for r in cursor.fetchall() if r['standard_episode_name']}
     
-    def _build_drama_props(self, data, media_name, cust, CONFIGS, get_abbr, get_img, get_cat, fmt_dt):
+    def _build_drama_props(self, data, media_name, cust, CONFIGS, get_abbr, get_img, get_cat, fmt_dt, scan_results=None):
         config = CONFIGS.get(cust, {})
         abbr = get_abbr(media_name)
         props = {}
@@ -345,6 +345,16 @@ class ExcelImportService:
                 props[col] = get_cat(cat1, cust) if cat1 else ''
             elif c.get('type') == 'is_multi_episode': props[col] = 1 if int(data.get('episode_count') or 0) > 1 else 0
             elif c.get('type') == 'total_duration_seconds': props[col] = int(data.get('total_duration') or 0)
+            elif c.get('type') == 'total_episodes_duration_seconds':
+                # 计算所有子集时长之和（秒）
+                total_dur = 0
+                total_eps = int(data.get('episode_count') or 0)
+                if scan_results and total_eps > 0:
+                    for ep in range(1, total_eps + 1):
+                        ep_name = f"{media_name}第{ep:02d}集"
+                        match = scan_results.get(ep_name, {})
+                        total_dur += match.get('duration', 0)
+                props[col] = total_dur
             elif c.get('type') == 'pinyin_abbr': props[col] = abbr
             elif c.get('type') == 'sequence': props[col] = None
         return props

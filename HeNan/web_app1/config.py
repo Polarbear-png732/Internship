@@ -100,7 +100,7 @@ CUSTOMER_CONFIGS = {
             {'col': '产品分类', 'value': 1},
             {'col': '描述', 'source': 'synopsis', 'suffix': '内容来源：杭州维高'},
             {'col': '是否多集', 'type': 'is_multi_episode'},
-            {'col': '单集时长（分）', 'source': 'single_episode_duration'},
+            {'col': '单集时长（分）', 'type': 'total_episodes_duration_seconds'},
             {'col': '评分', 'source': 'rating'},
             {'col': '编剧', 'source': 'screenwriter'},
             {'col': '版权开始时间', 'source': 'copyright_start_date', 'format': 'datetime'},

@@ -48,7 +48,7 @@ def clean_string(value, max_len=500):
     return s[:max_len] if len(s) > max_len else s
 
 
-def build_drama_props(data, media_name, cust):
+def build_drama_props(data, media_name, cust, scan_results=None):
     """构建剧头属性"""
     import re
     config = CUSTOMER_CONFIGS.get(cust, {})
@@ -82,6 +82,16 @@ def build_drama_props(data, media_name, cust):
             props[col] = 1 if int(data.get('episode_count') or 0) > 1 else 0
         elif c.get('type') == 'total_duration_seconds':
             props[col] = int(data.get('total_duration') or 0)
+        elif c.get('type') == 'total_episodes_duration_seconds':
+            # 计算所有子集时长之和（秒）
+            total_dur = 0
+            total_eps = int(data.get('episode_count') or 0)
+            if scan_results and total_eps > 0:
+                for ep in range(1, total_eps + 1):
+                    ep_name = f"{media_name}第{ep:02d}集"
+                    match = scan_results.get(ep_name, {})
+                    total_dur += match.get('duration', 0)
+            props[col] = total_dur
         elif c.get('type') == 'pinyin_abbr':
             props[col] = abbr
         elif c.get('type') == 'sequence':
@@ -171,36 +181,28 @@ def main():
     print("导入精确匹配数据")
     print("=" * 60)
     
-    # 1. 读取精确匹配结果
-    print("\n[1/6] 读取精确匹配结果...")
-    match_df = pd.read_excel(os.path.join(project_root, 'tables/匹配结果_精确匹配.xlsx'))
-    exact_match_names = set(match_df['版权方介质名称'].dropna().unique())
-    print(f"  精确匹配数量: {len(exact_match_names)}")
-    
-    # 2. 读取版权方数据表
-    print("\n[2/6] 读取版权方数据表...")
-    copyright_df = pd.read_excel(os.path.join(project_root, 'tables/河南移动版权方数据表.xlsx'), dtype=str).fillna('')
+    # 1. 直接读取精确匹配版权方数据表
+    print("\n[1/5] 读取精确匹配版权方数据表...")
+    copyright_df = pd.read_excel(os.path.join(project_root, 'tables/精确匹配版权方数据.xlsx'), dtype=str).fillna('')
     
     # 重命名列
     rename_map = {col: COLUMN_MAPPING[col.strip()] for col in copyright_df.columns if col.strip() in COLUMN_MAPPING}
     if rename_map:
         copyright_df = copyright_df.rename(columns=rename_map)
     
-    # 筛选精确匹配的数据
-    filtered_df = copyright_df[copyright_df['media_name'].isin(exact_match_names)]
     # 去重，保留第一条
-    filtered_df = filtered_df.drop_duplicates(subset=['media_name'], keep='first')
-    print(f"  版权方数据表总行数: {len(copyright_df)}")
-    print(f"  筛选后行数(去重后): {len(filtered_df)}")
+    filtered_df = copyright_df.drop_duplicates(subset=['media_name'], keep='first')
+    print(f"  数据表总行数: {len(copyright_df)}")
+    print(f"  去重后行数: {len(filtered_df)}")
     
-    # 3. 连接数据库
-    print("\n[3/6] 连接数据库...")
+    # 2. 连接数据库
+    print("\n[2/5] 连接数据库...")
     conn = pymysql.connect(**DB_CONFIG)
     cursor = conn.cursor(pymysql.cursors.DictCursor)
     
     try:
-        # 4. 清空表
-        print("\n[4/6] 清空数据库表...")
+        # 3. 清空表
+        print("\n[3/5] 清空数据库表...")
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
         cursor.execute("TRUNCATE TABLE drama_episode")
         cursor.execute("TRUNCATE TABLE drama_main")
@@ -209,8 +211,8 @@ def main():
         conn.commit()
         print("  已清空: drama_episode, drama_main, copyright_content")
         
-        # 5. 预加载扫描结果
-        print("\n[5/6] 预加载扫描结果...")
+        # 4. 预加载扫描结果
+        print("\n[4/5] 预加载扫描结果...")
         cursor.execute("SELECT standard_episode_name, duration_seconds, duration_formatted, size_bytes FROM video_scan_result")
         scan_results = {r['standard_episode_name']: {
             'duration': int(r['duration_seconds'] or 0),  # 秒数
@@ -219,8 +221,8 @@ def main():
         } for r in cursor.fetchall() if r['standard_episode_name']}
         print(f"  扫描结果数量: {len(scan_results)}")
         
-        # 6. 导入数据
-        print("\n[6/6] 导入数据...")
+        # 5. 导入数据
+        print("\n[5/5] 导入数据...")
         enabled_customers = get_enabled_customers()
         print(f"  启用的客户: {enabled_customers}")
         
@@ -253,7 +255,7 @@ def main():
                 
                 # 为每个客户准备剧头数据
                 for cust in enabled_customers:
-                    props = build_drama_props(cleaned, media_name, cust)
+                    props = build_drama_props(cleaned, media_name, cust, scan_results)
                     drama_batch.append((cust, media_name, json.dumps(props, ensure_ascii=False), cleaned))
                 
                 copyright_values.append(cleaned)

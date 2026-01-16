@@ -482,7 +482,7 @@ async def get_copyright_list(
 
 @router.get("/export")
 async def export_copyright_to_excel():
-    """导出所有版权方数据为Excel文件"""
+    """导出所有版权方数据为Excel文件（高性能版本）"""
     try:
         with get_db() as conn:
             cursor = conn.cursor(pymysql.cursors.DictCursor)
@@ -493,28 +493,48 @@ async def export_copyright_to_excel():
         for item in items:
             row = {}
             for db_col, cn_col in COPYRIGHT_EXPORT_COLUMNS.items():
-                row[cn_col] = item.get(db_col, '')
+                value = item.get(db_col, '')
+                # 截断过长的文本
+                if value and isinstance(value, str) and len(value) > 100:
+                    value = value[:100] + '...'
+                row[cn_col] = value
             export_data.append(row)
         
         df = pd.DataFrame(export_data, columns=list(COPYRIGHT_EXPORT_COLUMNS.values()))
         
         output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # 使用 xlsxwriter 引擎，性能更好
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df.to_excel(writer, sheet_name='版权方数据', index=False)
             
-            sheet = writer.book['版权方数据']
-            sheet.row_dimensions[1].height = 30
-            for idx, col in enumerate(df.columns, 1):
-                col_letter = get_column_letter(idx)
-                col_width = sum(2 if ord(c) > 127 else 1 for c in str(col))
-                max_width = col_width
-                for row_idx, value in enumerate(df[col], 2):
-                    if value is not None:
-                        data_width = sum(2 if ord(c) > 127 else 1 for c in str(value))
-                        max_width = max(max_width, min(data_width, 50))
-                        sheet.cell(row=row_idx, column=idx).alignment = Alignment(vertical='center')
-                sheet.cell(row=1, column=idx).alignment = Alignment(vertical='center', horizontal='center')
-                sheet.column_dimensions[col_letter].width = max_width * 1.2 + 2
+            workbook = writer.book
+            worksheet = writer.sheets['版权方数据']
+            
+            # 设置列宽（固定宽度，不逐单元格计算）
+            col_widths = {
+                '序号': 8, '上游版权方': 15, '介质名称': 25, '一级分类': 10, '二级分类': 10,
+                '一级分类-河南': 12, '二级分类-河南': 12, '集数': 8, '单集时长': 10, '总时长': 10,
+                '出品年代': 10, '出品地区': 10, '语言': 10, '语言-河南': 10, '国家': 10,
+                '导演': 15, '编剧': 15, '主演': 20, '推荐语': 30, '简介': 40,
+                '关键词': 20, '视频质量': 10, '许可证号': 15, '评分': 8, '独家状态': 10,
+                '版权开始日期': 15, '版权结束日期': 15, '二级分类-山东': 15,
+                '授权区域': 12, '授权平台': 12, '合作方式': 12
+            }
+            
+            for idx, col_name in enumerate(df.columns):
+                width = col_widths.get(col_name, 15)
+                worksheet.set_column(idx, idx, width)
+            
+            # 设置表头格式
+            header_format = workbook.add_format({
+                'bold': True, 'align': 'center', 'valign': 'vcenter',
+                'bg_color': '#4472C4', 'font_color': 'white', 'border': 1
+            })
+            for idx, col_name in enumerate(df.columns):
+                worksheet.write(0, idx, col_name, header_format)
+            
+            # 冻结首行
+            worksheet.freeze_panes(1, 0)
         
         output.seek(0)
         return StreamingResponse(
@@ -769,64 +789,218 @@ async def delete_copyright(item_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/batch-generate/{customer_code}")
-async def batch_generate_for_customer(customer_code: str):
-    """为指定客户批量生成所有版权数据的剧头/子集（用于新增客户时补全）"""
-    if customer_code not in CUSTOMER_CONFIGS:
-        raise HTTPException(status_code=400, detail=f"未知的客户代码: {customer_code}")
+# ============================================================
+# Excel批量导入API
+# ============================================================
+
+from fastapi import UploadFile, File, BackgroundTasks
+import asyncio
+import os
+import sys
+
+# 添加父目录到路径以导入services
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from services.import_service import ExcelImportService, ImportStatus
+
+# 创建导入服务实例
+import_service = ExcelImportService(upload_dir="temp/uploads")
+
+
+@router.post("/import/upload")
+async def upload_excel_for_import(file: UploadFile = File(...)):
+    """上传Excel文件并返回数据预览
+    
+    接收Excel文件，解析内容并返回预览数据和统计信息
+    """
+    # 验证文件
+    file_size = 0
+    content = await file.read()
+    file_size = len(content)
+    
+    is_valid, error_msg = import_service.validate_file(file.filename, file_size)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
+    
+    # 保存文件
+    os.makedirs("temp/uploads", exist_ok=True)
+    file_path = f"temp/uploads/{file.filename}"
+    with open(file_path, "wb") as f:
+        f.write(content)
     
     try:
+        # 创建任务
+        task = import_service.create_task(file_path)
+        
+        # 解析Excel
+        parse_result = import_service.parse_excel(task)
+        if not parse_result.get("success"):
+            raise HTTPException(status_code=400, detail=parse_result.get("error"))
+        
+        # 验证数据
         with get_db() as conn:
             cursor = conn.cursor(pymysql.cursors.DictCursor)
-            
-            cursor.execute("SELECT * FROM copyright_content")
-            all_copyrights = cursor.fetchall()
-            
-            generated_count = 0
-            skipped_count = 0
-            batch_size = 50  # 每50条提交一次
-            
-            for i, copyright_data in enumerate(all_copyrights):
-                # 转换 Decimal 类型
-                copyright_data = _convert_row(copyright_data)
-                
-                # 获取现有的 drama_ids
-                drama_ids_raw = copyright_data.get('drama_ids')
-                if isinstance(drama_ids_raw, str):
-                    drama_ids = json.loads(drama_ids_raw) if drama_ids_raw else {}
-                elif isinstance(drama_ids_raw, dict):
-                    drama_ids = drama_ids_raw
-                else:
-                    drama_ids = {}
-                
-                # 检查该客户是否已有剧头
-                if customer_code in drama_ids and drama_ids[customer_code]:
-                    skipped_count += 1
-                    continue
-                
-                # 为该客户生成剧头+子集
-                media_name = copyright_data.get('media_name')
-                drama_id = _create_drama_for_customer(cursor, copyright_data, media_name, customer_code)
-                drama_ids[customer_code] = drama_id
-                
-                # 更新关联关系
-                cursor.execute(
-                    "UPDATE copyright_content SET drama_ids = %s WHERE id = %s",
-                    (json.dumps(drama_ids), copyright_data['id'])
-                )
-                generated_count += 1
-                
-                # 分批提交
-                if generated_count % batch_size == 0:
-                    conn.commit()
-            
-            conn.commit()
-            
-            return {
-                "code": 200,
-                "message": f"已为 {CUSTOMER_CONFIGS[customer_code]['name']} 生成 {generated_count} 条剧头数据，跳过 {skipped_count} 条已存在数据"
-            }
+            validate_result = import_service.validate_data(task, cursor)
+        
+        if not validate_result.get("success"):
+            raise HTTPException(status_code=400, detail=validate_result.get("error"))
+        
+        return {
+            "code": 200,
+            "message": "文件解析成功",
+            "data": validate_result
+        }
+        
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"文件处理失败: {str(e)}")
+
+
+@router.post("/import/execute/{task_id}")
+async def execute_import(task_id: str, background_tasks: BackgroundTasks):
+    """执行导入任务
+    
+    启动异步导入任务，返回任务ID
+    """
+    task = import_service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    if task.status == ImportStatus.RUNNING:
+        raise HTTPException(status_code=400, detail="任务正在执行中")
+    
+    if task.valid_data is None or len(task.valid_data) == 0:
+        raise HTTPException(status_code=400, detail="没有有效数据可导入")
+    
+    # 在后台执行导入
+    background_tasks.add_task(_run_import_task, task_id)
+    
+    return {
+        "code": 200,
+        "message": "导入任务已启动",
+        "data": {
+            "task_id": task_id,
+            "total_rows": len(task.valid_data)
+        }
+    }
+
+
+async def _run_import_task(task_id: str):
+    """后台执行导入任务"""
+    import asyncio
+    
+    task = import_service.get_task(task_id)
+    if not task:
+        return
+    
+    try:
+        # 在线程池中执行同步的数据库操作
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _sync_import_task, task_id)
+    except Exception as e:
+        task.status = ImportStatus.FAILED
+        task.errors.append({"message": f"导入失败: {str(e)}"})
+
+
+def _sync_import_task(task_id: str):
+    """同步执行导入任务"""
+    task = import_service.get_task(task_id)
+    if not task:
+        return
+    
+    try:
+        with get_db() as conn:
+            import_service.execute_import_sync(task, conn)
+    except Exception as e:
+        task.status = ImportStatus.FAILED
+        task.errors.append({"message": f"导入失败: {str(e)}"})
+
+
+@router.get("/import/progress/{task_id}")
+async def get_import_progress(task_id: str):
+    """获取导入进度（SSE流）
+    
+    返回SSE流，实时推送导入进度
+    """
+    task = import_service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    async def event_generator():
+        """SSE事件生成器"""
+        last_processed = 0
+        
+        while True:
+            # 检查任务状态
+            if task.status == ImportStatus.COMPLETED:
+                # 发送完成事件
+                result = {
+                    "inserted": task.success_count,
+                    "skipped": task.skipped_count,
+                    "failed": task.failed_count,
+                    "elapsed": str(task.completed_at - task.created_at) if task.completed_at else "0s",
+                    "errors": task.errors[:50]
+                }
+                yield f"event: complete\ndata: {json.dumps(result, ensure_ascii=False)}\n\n"
+                break
+            
+            elif task.status == ImportStatus.FAILED:
+                # 发送错误事件
+                error_msg = task.errors[-1].get("message", "未知错误") if task.errors else "未知错误"
+                yield f"event: error\ndata: {json.dumps({'message': error_msg}, ensure_ascii=False)}\n\n"
+                break
+            
+            elif task.status == ImportStatus.RUNNING:
+                # 发送进度事件
+                if task.processed_rows != last_processed:
+                    last_processed = task.processed_rows
+                    total = task.total_rows or 1
+                    progress = {
+                        "current": task.processed_rows,
+                        "total": total,
+                        "success": task.success_count,
+                        "failed": task.failed_count,
+                        "skipped": task.skipped_count,
+                        "percentage": int(task.processed_rows / total * 100)
+                    }
+                    yield f"event: progress\ndata: {json.dumps(progress, ensure_ascii=False)}\n\n"
+            
+            await asyncio.sleep(0.5)  # 每0.5秒检查一次
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.get("/import/status/{task_id}")
+async def get_import_status(task_id: str):
+    """获取导入任务状态（非SSE方式）
+    
+    返回当前任务状态，用于轮询
+    """
+    task = import_service.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    total = task.total_rows or 1
+    
+    return {
+        "code": 200,
+        "data": {
+            "task_id": task_id,
+            "status": task.status.value,
+            "current": task.processed_rows,
+            "total": task.total_rows,
+            "success": task.success_count,
+            "failed": task.failed_count,
+            "skipped": task.skipped_count,
+            "percentage": int(task.processed_rows / total * 100) if task.total_rows > 0 else 0,
+            "errors": task.errors[:50] if task.status in [ImportStatus.COMPLETED, ImportStatus.FAILED] else []
+        }
+    }

@@ -102,7 +102,7 @@ function renderCustomerTable(customers) {
     const tbody = document.getElementById('customer-table-body');
     
     if (!customers || customers.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="px-6 py-8 text-center text-slate-500">暂无用户数据</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="3" class="px-6 py-8 text-center text-slate-500">暂无用户数据</td></tr>';
         return;
     }
     
@@ -147,11 +147,6 @@ function renderCustomerTable(customers) {
                             ${customer.customer_code || '-'}
                         </span>
                     </div>
-                </td>
-                <td class="px-6 py-5 text-slate-600 hidden sm:table-cell">
-                    <span class="px-2 py-1 bg-green-100 text-green-700 rounded-md text-sm">
-                        ${customer.drama_count || 0} 部剧集
-                    </span>
                 </td>
                 <td class="px-6 py-5 text-right">
                     <button onclick="viewCustomerDramas('${customer.customer_code}', '${customer.customer_name.replace(/'/g, "\\'")}')" 
@@ -1095,4 +1090,460 @@ async function refreshDramaDetail() {
     } catch (error) {
         showError('刷新失败：' + error.message);
     }
+}
+
+
+// ==================== Excel批量导入功能 ====================
+
+// 导入状态
+let importState = {
+    step: 'upload',  // upload, preview, progress, complete
+    taskId: null,
+    file: null,
+    previewData: null,
+    errors: [],
+    pollInterval: null,  // 轮询定时器
+    isMinimized: false   // 是否最小化
+};
+
+// 打开导入模态框
+function openImportModal() {
+    // 重置状态
+    importState = {
+        step: 'upload',
+        taskId: null,
+        file: null,
+        previewData: null,
+        errors: [],
+        pollInterval: null,
+        isMinimized: false
+    };
+    
+    // 重置UI
+    showImportStep('upload');
+    clearSelectedFile();
+    document.getElementById('import-file-input').value = '';
+    document.getElementById('import-btn-upload').disabled = true;
+    
+    document.getElementById('import-modal').classList.remove('hidden');
+}
+
+// 关闭导入模态框
+function closeImportModal() {
+    // 如果正在导入，只是隐藏窗口，不停止轮询
+    if (importState.step === 'progress' && importState.pollInterval) {
+        importState.isMinimized = true;
+    }
+    document.getElementById('import-modal').classList.add('hidden');
+}
+
+// 最小化导入模态框
+function minimizeImportModal() {
+    importState.isMinimized = true;
+    document.getElementById('import-modal').classList.add('hidden');
+    showSuccess('导入正在后台进行，完成后会自动刷新列表');
+}
+
+// 显示指定步骤
+function showImportStep(step) {
+    importState.step = step;
+    
+    // 隐藏所有步骤内容
+    document.querySelectorAll('.import-step').forEach(el => el.classList.add('hidden'));
+    
+    // 显示当前步骤
+    const stepEl = document.getElementById(`import-step-${step}`);
+    if (stepEl) stepEl.classList.remove('hidden');
+    
+    // 更新步骤指示器
+    const steps = ['upload', 'preview', 'progress', 'complete'];
+    steps.forEach((s, idx) => {
+        const stepIndicator = document.getElementById(`step-${s}`);
+        if (!stepIndicator) return;
+        
+        const circle = stepIndicator.querySelector('div');
+        const currentIdx = steps.indexOf(step);
+        
+        if (idx < currentIdx) {
+            // 已完成
+            stepIndicator.classList.remove('text-slate-400');
+            stepIndicator.classList.add('text-green-600');
+            circle.classList.remove('bg-slate-300', 'bg-purple-600');
+            circle.classList.add('bg-green-600');
+        } else if (idx === currentIdx) {
+            // 当前
+            stepIndicator.classList.remove('text-slate-400', 'text-green-600');
+            stepIndicator.classList.add('text-purple-600');
+            circle.classList.remove('bg-slate-300', 'bg-green-600');
+            circle.classList.add('bg-purple-600');
+        } else {
+            // 未完成
+            stepIndicator.classList.remove('text-purple-600', 'text-green-600');
+            stepIndicator.classList.add('text-slate-400');
+            circle.classList.remove('bg-purple-600', 'bg-green-600');
+            circle.classList.add('bg-slate-300');
+        }
+    });
+    
+    // 更新按钮显示
+    updateImportButtons(step);
+}
+
+// 更新按钮显示
+function updateImportButtons(step) {
+    const btnBack = document.getElementById('import-btn-back');
+    const btnCancel = document.getElementById('import-btn-cancel');
+    const btnUpload = document.getElementById('import-btn-upload');
+    const btnConfirm = document.getElementById('import-btn-confirm');
+    const btnClose = document.getElementById('import-btn-close');
+    
+    // 隐藏所有按钮
+    btnBack.classList.add('hidden');
+    btnUpload.classList.add('hidden');
+    btnConfirm.classList.add('hidden');
+    btnClose.classList.add('hidden');
+    
+    switch (step) {
+        case 'upload':
+            btnCancel.classList.remove('hidden');
+            btnUpload.classList.remove('hidden');
+            break;
+        case 'preview':
+            btnBack.classList.remove('hidden');
+            btnCancel.classList.remove('hidden');
+            btnConfirm.classList.remove('hidden');
+            break;
+        case 'progress':
+            btnCancel.classList.add('hidden');
+            break;
+        case 'complete':
+            btnClose.classList.remove('hidden');
+            btnCancel.classList.add('hidden');
+            break;
+    }
+}
+
+// 处理拖拽悬停
+function handleDragOver(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    const dropZone = document.getElementById('drop-zone');
+    dropZone.classList.add('border-purple-500', 'bg-purple-50');
+    dropZone.classList.remove('border-slate-300');
+}
+
+// 处理拖拽离开
+function handleDragLeave(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    const dropZone = document.getElementById('drop-zone');
+    dropZone.classList.remove('border-purple-500', 'bg-purple-50');
+    dropZone.classList.add('border-slate-300');
+}
+
+// 处理文件拖放
+function handleDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    const dropZone = document.getElementById('drop-zone');
+    dropZone.classList.remove('border-purple-500', 'bg-purple-50');
+    dropZone.classList.add('border-slate-300');
+    
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+        processFile(files[0]);
+    }
+}
+
+// 处理文件选择
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    processFile(file);
+}
+
+// 处理文件（统一入口）
+function processFile(file) {
+    // 验证文件格式
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['xlsx', 'xls'].includes(ext)) {
+        showError('不支持的文件格式，仅支持 .xlsx, .xls');
+        return;
+    }
+    
+    // 验证文件大小
+    if (file.size > 50 * 1024 * 1024) {
+        showError('文件大小超过限制，最大允许 50MB');
+        return;
+    }
+    
+    importState.file = file;
+    
+    // 显示文件信息
+    document.getElementById('selected-file-info').classList.remove('hidden');
+    document.getElementById('selected-file-name').textContent = file.name;
+    document.getElementById('selected-file-size').textContent = formatFileSize(file.size);
+    
+    // 启用上传按钮
+    document.getElementById('import-btn-upload').disabled = false;
+}
+
+// 清除选中的文件
+function clearSelectedFile() {
+    importState.file = null;
+    document.getElementById('selected-file-info').classList.add('hidden');
+    document.getElementById('import-file-input').value = '';
+    document.getElementById('import-btn-upload').disabled = true;
+}
+
+// 格式化文件大小
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+// 上传并解析文件
+async function uploadImportFile() {
+    if (!importState.file) {
+        showError('请先选择文件');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', importState.file);
+    
+    try {
+        document.getElementById('import-btn-upload').disabled = true;
+        document.getElementById('import-btn-upload').textContent = '解析中...';
+        
+        const response = await fetch(`${API_BASE}/copyright/import/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.code === 200) {
+            importState.taskId = result.data.task_id;
+            importState.previewData = result.data;
+            
+            // 显示预览
+            showPreviewData(result.data);
+            showImportStep('preview');
+        } else {
+            showError(result.detail || result.message || '文件解析失败');
+        }
+    } catch (error) {
+        showError('上传失败：' + error.message);
+    } finally {
+        document.getElementById('import-btn-upload').disabled = false;
+        document.getElementById('import-btn-upload').textContent = '上传并解析';
+    }
+}
+
+// 显示预览数据
+function showPreviewData(data) {
+    // 更新统计
+    document.getElementById('preview-total').textContent = data.total_rows || 0;
+    document.getElementById('preview-valid').textContent = data.valid_rows || 0;
+    document.getElementById('preview-duplicate').textContent = data.duplicate_rows || 0;
+    document.getElementById('preview-existing').textContent = data.existing_in_db || 0;
+    
+    // 渲染预览表格
+    const tbody = document.getElementById('preview-table-body');
+    const samples = data.sample_data || [];
+    
+    if (samples.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="px-3 py-4 text-center text-slate-500">无有效数据</td></tr>';
+    } else {
+        tbody.innerHTML = samples.map(item => `
+            <tr class="hover:bg-slate-50">
+                <td class="px-3 py-2 text-slate-700">${item.media_name || '-'}</td>
+                <td class="px-3 py-2 text-slate-600">${item.category_level1 || '-'}</td>
+                <td class="px-3 py-2 text-slate-600">${item.episode_count || '-'}</td>
+                <td class="px-3 py-2 text-slate-600">${item.upstream_copyright || '-'}</td>
+            </tr>
+        `).join('');
+    }
+    
+    // 显示错误详情
+    const errorsContainer = document.getElementById('preview-errors');
+    const errorList = document.getElementById('preview-error-list');
+    const invalidDetails = data.invalid_details || [];
+    
+    if (invalidDetails.length > 0) {
+        errorsContainer.classList.remove('hidden');
+        errorList.innerHTML = invalidDetails.slice(0, 20).map(err => 
+            `<div>第 ${err.row} 行: ${err.reason}</div>`
+        ).join('');
+        if (invalidDetails.length > 20) {
+            errorList.innerHTML += `<div class="mt-1 text-slate-500">... 还有 ${invalidDetails.length - 20} 条错误</div>`;
+        }
+    } else {
+        errorsContainer.classList.add('hidden');
+    }
+}
+
+// 返回上一步
+function importStepBack() {
+    if (importState.step === 'preview') {
+        showImportStep('upload');
+    }
+}
+
+// 确认导入
+async function confirmImport() {
+    if (!importState.taskId) {
+        showError('任务不存在，请重新上传文件');
+        return;
+    }
+    
+    try {
+        // 启动导入
+        const response = await fetch(`${API_BASE}/copyright/import/execute/${importState.taskId}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.code === 200) {
+            showImportStep('progress');
+            // 开始轮询进度
+            pollImportProgress();
+        } else {
+            showError(result.detail || result.message || '启动导入失败');
+        }
+    } catch (error) {
+        showError('启动导入失败：' + error.message);
+    }
+}
+
+// 轮询导入进度
+async function pollImportProgress() {
+    if (!importState.taskId) return;
+    
+    // 清除之前的轮询
+    if (importState.pollInterval) {
+        clearInterval(importState.pollInterval);
+    }
+    
+    importState.pollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${API_BASE}/copyright/import/status/${importState.taskId}`);
+            const result = await response.json();
+            
+            if (result.code === 200) {
+                const data = result.data;
+                
+                // 更新进度显示（即使窗口最小化也更新状态）
+                if (!importState.isMinimized) {
+                    document.getElementById('progress-percentage').textContent = data.percentage + '%';
+                    document.getElementById('progress-bar').style.width = data.percentage + '%';
+                    document.getElementById('progress-success').textContent = data.success || 0;
+                    document.getElementById('progress-skipped').textContent = data.skipped || 0;
+                    document.getElementById('progress-failed').textContent = data.failed || 0;
+                }
+                
+                // 检查是否完成
+                if (data.status === 'completed' || data.status === 'failed') {
+                    clearInterval(importState.pollInterval);
+                    importState.pollInterval = null;
+                    
+                    // 自动刷新列表
+                    loadCopyrightContent();
+                    
+                    // 如果窗口最小化，显示通知
+                    if (importState.isMinimized) {
+                        if (data.status === 'completed') {
+                            showSuccess(`导入完成！成功 ${data.success} 条，跳过 ${data.skipped} 条，失败 ${data.failed} 条`);
+                        } else {
+                            showError('导入失败，请重新尝试');
+                        }
+                        importState.isMinimized = false;
+                    } else {
+                        showImportComplete(data);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('轮询进度失败:', error);
+        }
+    }, 500);  // 每0.5秒检查一次，提高响应速度
+}
+
+// 显示导入完成
+function showImportComplete(data) {
+    showImportStep('complete');
+    
+    // 更新统计
+    document.getElementById('complete-success').textContent = data.success || 0;
+    document.getElementById('complete-skipped').textContent = data.skipped || 0;
+    document.getElementById('complete-failed').textContent = data.failed || 0;
+    
+    // 更新标题和图标
+    const icon = document.getElementById('complete-icon');
+    const title = document.getElementById('complete-title');
+    
+    if (data.status === 'failed') {
+        icon.classList.remove('bg-green-100');
+        icon.classList.add('bg-red-100');
+        icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-red-600"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>';
+        title.textContent = '导入失败';
+    } else {
+        icon.classList.remove('bg-red-100');
+        icon.classList.add('bg-green-100');
+        icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-600"><polyline points="20 6 9 17 4 12"/></svg>';
+        title.textContent = '导入完成';
+    }
+    
+    // 显示错误详情
+    const errorsContainer = document.getElementById('complete-errors');
+    const errorList = document.getElementById('complete-error-list');
+    const errors = data.errors || [];
+    importState.errors = errors;
+    
+    if (errors.length > 0) {
+        errorsContainer.classList.remove('hidden');
+        errorList.innerHTML = errors.slice(0, 20).map(err => 
+            `<div>${err.media_name ? `"${err.media_name}"` : `第 ${err.row || err.batch} 行`}: ${err.message}</div>`
+        ).join('');
+        if (errors.length > 20) {
+            errorList.innerHTML += `<div class="mt-1 text-slate-500">... 还有 ${errors.length - 20} 条错误</div>`;
+        }
+    } else {
+        errorsContainer.classList.add('hidden');
+    }
+}
+
+// 导出错误数据
+function exportErrors() {
+    if (!importState.errors || importState.errors.length === 0) {
+        showError('没有错误数据可导出');
+        return;
+    }
+    
+    // 生成CSV内容
+    let csv = '行号,介质名称,错误信息\n';
+    importState.errors.forEach(err => {
+        const row = err.row || err.batch || '';
+        const name = (err.media_name || '').replace(/"/g, '""');
+        const msg = (err.message || '').replace(/"/g, '""');
+        csv += `"${row}","${name}","${msg}"\n`;
+    });
+    
+    // 下载文件
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '导入错误数据.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+// 加载版权方数据（用于导入完成后刷新）
+function loadCopyrightContent() {
+    loadCopyrightList(1);
 }

@@ -38,7 +38,11 @@ def _build_drama_display_dict(drama, customer_code):
             result[col_name] = get_image_url(abbr, image_type, customer_code)
         else:
             # 从 dynamic_properties 中获取
-            result[col_name] = props.get(col_name, col_config.get('default', ''))
+            # 只有配置了 default 才使用默认值，否则保持空
+            value = props.get(col_name)
+            if (value is None or value == '') and 'default' in col_config:
+                value = col_config['default']
+            result[col_name] = value if value is not None else ''
     
     return result
 
@@ -60,7 +64,11 @@ def _build_episode_display_dict(episode, customer_code, drama_name=''):
             result[col_name] = col_config['value']
         else:
             # 从 dynamic_properties 中获取
-            result[col_name] = props.get(col_name, col_config.get('default', ''))
+            # 只有配置了 default 才使用默认值，否则保持空
+            value = props.get(col_name)
+            if (value is None or value == '') and 'default' in col_config:
+                value = col_config['default']
+            result[col_name] = value if value is not None else ''
     
     return result
 
@@ -332,26 +340,28 @@ def _build_picture_data(drama, customer_code):
 
 
 def _format_excel_sheets(writer, customer_code):
-    """格式化Excel表格"""
+    """格式化Excel表格 - 固定列宽，不换行，长文本截断显示"""
     from openpyxl.styles import Font, PatternFill
     
     workbook = writer.book
     for sheet_name in workbook.sheetnames:
         sheet = workbook[sheet_name]
-        sheet.row_dimensions[1].height = 30
+        sheet.row_dimensions[1].height = 20
         
         for col_idx in range(1, sheet.max_column + 1):
             col_letter = get_column_letter(col_idx)
-            max_width = 10
+            header_cell = sheet.cell(row=1, column=col_idx)
+            header_name = str(header_cell.value) if header_cell.value else ''
             
+            # 根据表头长度计算列宽，限制最大30
+            header_width = sum(2 if ord(c) > 127 else 1 for c in header_name)
+            col_width = min(header_width + 4, 30)
+            sheet.column_dimensions[col_letter].width = col_width
+            
+            # 设置所有单元格：不换行，垂直居中
             for row_idx in range(1, sheet.max_row + 1):
                 cell = sheet.cell(row=row_idx, column=col_idx)
-                if cell.value is not None:
-                    cell_width = sum(2 if ord(c) > 127 else 1 for c in str(cell.value))
-                    max_width = max(max_width, min(cell_width, 50))
-                cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
-            
-            sheet.column_dimensions[col_letter].width = max_width * 1.2 + 2
+                cell.alignment = Alignment(wrap_text=False, vertical='center')
 
 
 def _format_jiangsu_excel(writer):
@@ -410,7 +420,7 @@ def _format_jiangsu_excel(writer):
         for col_idx, value in enumerate(config['row1'], 1):
             cell = sheet.cell(row=1, column=col_idx)
             cell.value = value
-            cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
+            cell.alignment = Alignment(wrap_text=False, vertical='center', horizontal='center')
             cell.fill = header_fill
             cell.border = thin_border
         
@@ -418,7 +428,7 @@ def _format_jiangsu_excel(writer):
         for col_idx, value in enumerate(config['row2'], 1):
             cell = sheet.cell(row=2, column=col_idx)
             cell.value = value
-            cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
+            cell.alignment = Alignment(wrap_text=False, vertical='center', horizontal='center')
             cell.fill = header_fill
             cell.border = thin_border
         
@@ -426,18 +436,29 @@ def _format_jiangsu_excel(writer):
         sheet.row_dimensions[1].height = 20
         sheet.row_dimensions[2].height = 20
         
-        # 调整列宽
-        for col_idx in range(1, sheet.max_column + 1):
+        # 调整列宽：根据英文字段名和中文表头计算，设置合理宽度
+        col_widths = {
+            # 剧头表
+            'vod_no': 8, 'sId': 10, 'appId': 10, 'seriesName': 30, 'volumnCount': 10,
+            'description': 50, 'seriesFlag': 12, 'sortName': 20, 'programType': 15,
+            'releaseYear': 12, 'language': 10, 'rating': 8, 'originalCountry': 12,
+            'pgmCategory': 10, 'pgmSedClass': 20, 'director': 15, 'actorDisplay': 20,
+            # 子集表
+            'vod_info_no': 10, 'pId': 10, 'programName': 35, 'type': 8,
+            'fileURL': 60, 'duration': 12, 'bitRateType': 12, 'mediaSpec': 40,
+            # 图片表
+            'picture_no': 10, 'picId': 10, 'sequence': 8,
+        }
+        
+        for col_idx, field_name in enumerate(config['row1'], 1):
             col_letter = get_column_letter(col_idx)
-            max_width = 10
+            col_width = col_widths.get(field_name, 15)
+            sheet.column_dimensions[col_letter].width = col_width
             
-            for row_idx in range(1, min(sheet.max_row + 1, 100)):
+            # 设置数据行：不换行
+            for row_idx in range(3, sheet.max_row + 1):
                 cell = sheet.cell(row=row_idx, column=col_idx)
-                if cell.value is not None:
-                    cell_width = sum(2 if ord(c) > 127 else 1 for c in str(cell.value))
-                    max_width = max(max_width, min(cell_width, 50))
-            
-            sheet.column_dimensions[col_letter].width = max_width * 1.2 + 2
+                cell.alignment = Alignment(wrap_text=False, vertical='center')
 
 
 @router.get("/export/customer/{customer_code}")

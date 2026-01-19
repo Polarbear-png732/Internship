@@ -1,3 +1,6 @@
+# 视频内容运营管理平台 - Python依赖包
+# 包含FastAPI框架、数据库连接、Excel处理等核心依赖
+
 fastapi
 uvicorn
 pandas

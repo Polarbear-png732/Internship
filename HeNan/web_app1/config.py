@@ -1,3 +1,9 @@
+"""
+系统配置模块
+包含数据库连接配置、版权字段定义、多客户配置（河南、山东、甘肃、江苏）
+支持配置驱动的字段映射、URL模板和导出格式定制
+"""
+
 # 数据库连接配置
 DB_CONFIG = {
     'host': 'localhost',
@@ -143,7 +149,7 @@ CUSTOMER_CONFIGS = {
             {'col': '清晰度', 'value': 1},
             {'col': '总集数', 'source': 'episode_count'},
             {'col': '主演', 'source': 'cast_members', 'separator': '|'},
-            {'col': '一级分类', 'source': 'category_level1'},
+            {'col': '一级分类', 'source': 'category_level1', 'mapping': True},  # 添加映射标记
             {'col': '二级分类', 'source': 'category_level2'},
             {'col': '国家地区', 'source': 'country'},
             {'col': '上映年份', 'source': 'production_year'},
@@ -175,8 +181,16 @@ CUSTOMER_CONFIGS = {
         },
         'media_url_template': 'ftp://ftpmedia:rD2q0y!M5eI2@36.133.168.235:2121/media/gsyd/{dir}/{abbr}/{abbr}{ep:03d}.ts',
         
+        # 一级分类映射规则（新增）
+        'category_level1_map': {
+            '电竞': '体育',  # 电竞 → 体育
+        },
+        
+        # 内容目录映射
         'content_dir_map': {'体育': 'dianjing', '教育': 'jiaoyu', '动漫': 'dongman', '_default': 'jiaoyu'},
-        'product_category_map': {'教育': 1, '体育': 2, '动漫': 3, '_default': 2},
+        
+        # 产品分类映射（去掉默认值）
+        'product_category_map': {'教育': 1, '体育': 2, '动漫': 3},
     },
     
     'jiangsu_newmedia': {

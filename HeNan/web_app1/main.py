@@ -1,3 +1,7 @@
+"""
+FastAPI 应用主入口
+提供视频内容运营管理平台的核心服务，包括客户管理、剧集管理、版权数据管理等功能
+"""
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

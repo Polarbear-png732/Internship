@@ -1,3 +1,7 @@
+"""
+客户管理路由模块
+提供客户（省份运营商）的查询和管理功能，支持多客户配置驱动的业务逻辑
+"""
 from fastapi import APIRouter, HTTPException
 import pymysql
 from database import get_db

@@ -1,3 +1,8 @@
+"""
+剧集管理路由模块
+提供剧头（剧集主信息）的查询、导出、编辑和删除功能
+支持多客户配置驱动的字段映射和Excel导出格式定制
+"""
 from fastapi import APIRouter, HTTPException, Query, Body
 from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
@@ -10,7 +15,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.styles import Alignment
 
 from database import get_db
-from utils import parse_json, build_drama_dict, build_episode_dict, get_pinyin_abbr, get_image_url
+from utils import parse_json, get_pinyin_abbr, get_image_url
 from config import CUSTOMER_CONFIGS
 
 router = APIRouter(prefix="/api/dramas", tags=["剧集管理"])

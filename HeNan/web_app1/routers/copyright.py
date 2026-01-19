@@ -1,3 +1,8 @@
+"""
+版权方数据管理路由模块
+提供版权内容的增删改查、Excel批量导入导出、剧头子集生成等核心功能
+支持异步导入、实时进度推送（SSE）和多客户数据同步
+"""
 from fastapi import APIRouter, HTTPException, Query, Body
 from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any

@@ -1,15 +1,29 @@
+"""
+子集管理路由模块
+提供剧集子集（单集）的查询、更新和删除功能，支持动态属性的JSON存储
+"""
 from fastapi import APIRouter, HTTPException, Body
 from typing import Dict, Any
 import pymysql
 import json
 
 from database import get_db
-from utils import build_episode_dict
+from utils import parse_json
 
 router = APIRouter(prefix="/api/dramas", tags=["子集管理"])
 
 # 河南移动的子集动态字段（保持兼容）
 EPISODE_DYNAMIC_FIELDS = ['媒体拉取地址', '媒体类型', '编码格式', '集数', '时长', '文件大小']
+
+
+def _build_episode_response(episode):
+    """构建子集响应数据"""
+    props = parse_json(episode)
+    return {
+        '子集id': episode['episode_id'],
+        '节目名称': episode['episode_name'],
+        **props
+    }
 
 
 @router.get("/{drama_id}/episodes")
@@ -20,7 +34,7 @@ async def get_drama_episodes(drama_id: int):
             cursor = conn.cursor(pymysql.cursors.DictCursor)
             cursor.execute("SELECT * FROM drama_episode WHERE drama_id = %s ORDER BY episode_id", (drama_id,))
             episodes = cursor.fetchall()
-            return {"code": 200, "message": "success", "data": [build_episode_dict(ep) for ep in episodes]}
+            return {"code": 200, "message": "success", "data": [_build_episode_response(ep) for ep in episodes]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -41,39 +41,42 @@ def _convert_row(row):
     return {k: _convert_decimal(v) for k, v in row.items()}
 
 
-# 导出 Excel 的列名映射
+# 导出 Excel 的列名映射（按照数据库表结构顺序，不包含 serial_number）
 COPYRIGHT_EXPORT_COLUMNS = {
     'id': '序号',
+    # 'serial_number': '序号(自定义)',  # 不导出此字段
     'upstream_copyright': '上游版权方',
     'media_name': '介质名称',
     'category_level1': '一级分类',
     'category_level2': '二级分类',
-    'category_level1_henan': '一级分类-河南',
-    'category_level2_henan': '二级分类-河南',
+    'category_level1_henan': '一级分类-河南标准',
+    'category_level2_henan': '二级分类-河南标准',
     'episode_count': '集数',
-    'single_episode_duration': '单集时长',
-    'total_duration': '总时长',
+    'single_episode_duration': '单集时长（分）',
+    'total_duration': '总时长（分）',
     'production_year': '出品年代',
-    'production_region': '出品地区',
+    'premiere_date': '首播日期',
+    'authorization_region': '授权区域（全国/单独沟通）',
+    'authorization_platform': '授权平台（IPTV、OTT、小屏、待沟通）',
+    'cooperation_mode': '合作方式（采买/分成）',
+    'production_region': '制作地区',
     'language': '语言',
-    'language_henan': '语言-河南',
-    'country': '国家',
+    'language_henan': '语言-河南标准',
+    'country': '国别',
     'director': '导演',
     'screenwriter': '编剧',
-    'cast_members': '主演',
-    'recommendation': '推荐语',
+    'cast_members': '主演\\嘉宾\\主持人',
+    'author': '作者',
+    'recommendation': '推荐语/一句话介绍',
     'synopsis': '简介',
-    'keywords': '关键词',
-    'video_quality': '视频质量',
-    'license_number': '许可证号',
-    'rating': '评分',
-    'exclusive_status': '独家状态',
-    'copyright_start_date': '版权开始日期',
-    'copyright_end_date': '版权结束日期',
+    'keywords': '关键字',
+    'video_quality': '标清\\高清\\4K\\3D\\杜比',
+    'license_number': '发行许可编号\\备案号等',
+    'rating': '行业内相关网站的评级、评分（骨朵\\艺恩\\猫眼\\豆瓣\\时光网\\百度\\其他主流视频网站等评分',
+    'exclusive_status': '独家\\非独',
+    'copyright_start_date': '版权开始时间',
+    'copyright_end_date': '版权结束时间',
     'category_level2_shandong': '二级分类-山东',
-    'authorization_region': '授权区域',
-    'authorization_platform': '授权平台',
-    'cooperation_mode': '合作方式'
 }
 
 
@@ -499,9 +502,22 @@ async def export_copyright_to_excel():
             row = {}
             for db_col, cn_col in COPYRIGHT_EXPORT_COLUMNS.items():
                 value = item.get(db_col, '')
+                
+                # 将单集时长和总时长转换为整数
+                if db_col in ['single_episode_duration', 'total_duration']:
+                    if value is not None and value != '':
+                        try:
+                            # 转换为整数（四舍五入）
+                            value = int(round(float(value)))
+                        except (ValueError, TypeError):
+                            value = ''
+                    else:
+                        value = ''
+                
                 # 截断过长的文本
                 if value and isinstance(value, str) and len(value) > 100:
                     value = value[:100] + '...'
+                    
                 row[cn_col] = value
             export_data.append(row)
         
@@ -515,15 +531,41 @@ async def export_copyright_to_excel():
             workbook = writer.book
             worksheet = writer.sheets['版权方数据']
             
-            # 设置列宽（固定宽度，不逐单元格计算）
+            # 设置列宽（按照数据库表结构顺序，不包含序号(自定义)）
             col_widths = {
-                '序号': 8, '上游版权方': 15, '介质名称': 25, '一级分类': 10, '二级分类': 10,
-                '一级分类-河南': 12, '二级分类-河南': 12, '集数': 8, '单集时长': 10, '总时长': 10,
-                '出品年代': 10, '出品地区': 10, '语言': 10, '语言-河南': 10, '国家': 10,
-                '导演': 15, '编剧': 15, '主演': 20, '推荐语': 30, '简介': 40,
-                '关键词': 20, '视频质量': 10, '许可证号': 15, '评分': 8, '独家状态': 10,
-                '版权开始日期': 15, '版权结束日期': 15, '二级分类-山东': 15,
-                '授权区域': 12, '授权平台': 12, '合作方式': 12
+                '序号': 8, 
+                '上游版权方': 15, 
+                '介质名称': 25, 
+                '一级分类': 10, 
+                '二级分类': 10, 
+                '一级分类-河南标准': 15, 
+                '二级分类-河南标准': 15, 
+                '集数': 8, 
+                '单集时长（分）': 12, 
+                '总时长（分）': 12, 
+                '出品年代': 10, 
+                '首播日期': 12,
+                '授权区域（全国/单独沟通）': 20, 
+                '授权平台（IPTV、OTT、小屏、待沟通）': 30, 
+                '合作方式（采买/分成）': 18, 
+                '制作地区': 12,
+                '语言': 10, 
+                '语言-河南标准': 15, 
+                '国别': 10,
+                '导演': 15, 
+                '编剧': 15, 
+                '主演\\嘉宾\\主持人': 20, 
+                '作者': 15,
+                '推荐语/一句话介绍': 30, 
+                '简介': 40, 
+                '关键字': 20, 
+                '标清\\高清\\4K\\3D\\杜比': 18, 
+                '发行许可编号\\备案号等': 20, 
+                '行业内相关网站的评级、评分（骨朵\\艺恩\\猫眼\\豆瓣\\时光网\\百度\\其他主流视频网站等评分': 50, 
+                '独家\\非独': 12, 
+                '版权开始时间': 15, 
+                '版权结束时间': 15, 
+                '二级分类-山东': 15
             }
             
             for idx, col_name in enumerate(df.columns):

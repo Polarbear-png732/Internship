@@ -274,10 +274,11 @@ COLUMN_MAPPING = {
     '一级分类-河南标准': 'category_level1_henan', '一级分类-河南': 'category_level1_henan',
     '二级分类-河南标准': 'category_level2_henan', '二级分类-河南': 'category_level2_henan',
     '集数': 'episode_count', '单集时长': 'single_episode_duration', '总时长': 'total_duration',
-    '出品年代': 'production_year', '制作地区': 'production_region', '出品地区': 'production_region',
+    '出品年代': 'production_year', '首播日期': 'premiere_date', '制作地区': 'production_region', '出品地区': 'production_region',
     '语言': 'language', '语言-河南标准': 'language_henan', '语言-河南': 'language_henan',
     '国别': 'country', '国家': 'country', '导演': 'director', '编剧': 'screenwriter',
     '主演/嘉宾/主持人': 'cast_members', '主演\\嘉宾\\主持人': 'cast_members', '主演': 'cast_members',
+    '作者': 'author',
     '推荐语': 'recommendation', '推荐语/一句话介绍': 'recommendation', '简介': 'synopsis',
     '关键字': 'keywords', '关键词': 'keywords', '清晰度': 'video_quality', '视频质量': 'video_quality',
     '标清\\高清\\4K\\3D\\杜比': 'video_quality', '许可编号': 'license_number', '许可证号': 'license_number',
@@ -305,10 +306,10 @@ NUMERIC_FIELDS = {
 INSERT_FIELDS = [
     'media_name', 'upstream_copyright', 'category_level1', 'category_level2', 
     'category_level1_henan', 'category_level2_henan', 'episode_count', 
-    'single_episode_duration', 'total_duration', 'production_year', 'production_region', 
-    'language', 'language_henan', 'country', 'director', 'screenwriter', 'cast_members', 
-    'recommendation', 'synopsis', 'keywords', 'video_quality', 'license_number', 
-    'rating', 'exclusive_status', 'copyright_start_date', 'copyright_end_date',
-    'category_level2_shandong', 'authorization_region', 'authorization_platform', 
-    'cooperation_mode', 'drama_ids'
+    'single_episode_duration', 'total_duration', 'production_year', 'premiere_date',
+    'production_region', 'language', 'language_henan', 'country', 'director', 
+    'screenwriter', 'cast_members', 'author', 'recommendation', 'synopsis', 
+    'keywords', 'video_quality', 'license_number', 'rating', 'exclusive_status', 
+    'copyright_start_date', 'copyright_end_date', 'category_level2_shandong', 
+    'authorization_region', 'authorization_platform', 'cooperation_mode', 'drama_ids'
 ]

@@ -24,10 +24,17 @@ router = APIRouter(prefix="/api/dramas", tags=["剧集管理"])
 def _build_drama_display_dict(drama, customer_code):
     """根据客户配置构建剧头显示数据"""
     config = CUSTOMER_CONFIGS.get(customer_code, CUSTOMER_CONFIGS.get('henan_mobile', {}))
-    props = parse_json(drama)
+    col_configs = config.get('drama_columns', [])
+    return _build_drama_display_dict_fast(drama, customer_code, col_configs)
+
+
+def _build_drama_display_dict_fast(drama, customer_code, col_configs):
+    """根据客户配置构建剧头显示数据（快速版本，避免重复获取配置）"""
+    # 使用预解析的props（如果存在），否则现场解析
+    props = drama.get('_parsed_props') if '_parsed_props' in drama else parse_json(drama)
     
     result = {}
-    for col_config in config.get('drama_columns', []):
+    for col_config in col_configs:
         col_name = col_config['col']
         
         if col_config.get('field') == 'drama_id':
@@ -37,8 +44,8 @@ def _build_drama_display_dict(drama, customer_code):
         elif 'value' in col_config:
             result[col_name] = col_config['value']
         elif col_config.get('type') == 'image':
-            # 图片URL
-            abbr = get_pinyin_abbr(drama.get('drama_name', ''))
+            # 图片URL - 使用预计算的拼音缩写
+            abbr = drama.get('_pinyin_abbr') if '_pinyin_abbr' in drama else get_pinyin_abbr(drama.get('drama_name', ''))
             image_type = col_config.get('image_type', 'vertical')
             result[col_name] = get_image_url(abbr, image_type, customer_code)
         else:
@@ -55,10 +62,17 @@ def _build_drama_display_dict(drama, customer_code):
 def _build_episode_display_dict(episode, customer_code, drama_name=''):
     """根据客户配置构建子集显示数据"""
     config = CUSTOMER_CONFIGS.get(customer_code, CUSTOMER_CONFIGS.get('henan_mobile', {}))
-    props = parse_json(episode)
+    col_configs = config.get('episode_columns', [])
+    return _build_episode_display_dict_fast(episode, customer_code, col_configs)
+
+
+def _build_episode_display_dict_fast(episode, customer_code, col_configs):
+    """根据客户配置构建子集显示数据（快速版本，避免重复获取配置）"""
+    # 使用预解析的props（如果存在），否则现场解析
+    props = episode.get('_parsed_props') if '_parsed_props' in episode else parse_json(episode)
     
     result = {}
-    for col_config in config.get('episode_columns', []):
+    for col_config in col_configs:
         col_name = col_config['col']
         
         if col_config.get('field') == 'episode_id':
@@ -320,7 +334,8 @@ async def export_drama_to_excel(drama_id: int):
 
 def _build_picture_data(drama, customer_code):
     """构建江苏新媒体的图片数据 - 每个剧头4张图片(type: 0,1,2,99)"""
-    abbr = get_pinyin_abbr(drama['drama_name'])
+    # 使用预计算的拼音缩写（如果存在），否则现场计算
+    abbr = drama.get('_pinyin_abbr') if '_pinyin_abbr' in drama else get_pinyin_abbr(drama['drama_name'])
     
     # 4种图片类型: 0, 1, 2, 99
     picture_types = [
@@ -372,6 +387,7 @@ def _format_excel_sheets(writer, customer_code):
 def _format_jiangsu_excel(writer):
     """为江苏新媒体格式化Excel，按照江苏新媒体注入表模版.xlsx的格式
     格式：第1行英文字段名，第2行中文说明，第3行开始是数据
+    性能优化：减少单元格样式设置次数
     """
     from openpyxl.styles import Font, PatternFill, Border, Side
     from openpyxl.utils import get_column_letter
@@ -386,8 +402,6 @@ def _format_jiangsu_excel(writer):
     header_fill = PatternFill(start_color='E0E0E0', end_color='E0E0E0', fill_type='solid')
     
     # 江苏剧头表头配置 - 2行表头
-    # 第1行: 英文字段名 (vod_no, sId, appId, ...)
-    # 第2行: 中文说明 (序号, ID, 应用Id, ...)
     jiangsu_drama_headers = {
         'row1': ['vod_no', 'sId', 'appId', 'seriesName', 'volumnCount', 'description', 'seriesFlag', 'sortName', 'programType', 'releaseYear', 'language', 'rating', 'originalCountry', 'pgmCategory', 'pgmSedClass', 'director', 'actorDisplay'],
         'row2': ['序号', 'ID', '应用Id', '剧头名称', '集数', '介绍', '剧头类型', '搜索关键字', '栏目类型', '上映日期', '语言', '评分', '来源国家', '分类', '二级分类', '导演', '演员'],
@@ -411,6 +425,21 @@ def _format_jiangsu_excel(writer):
         '图片': jiangsu_picture_headers
     }
     
+    # 列宽配置
+    col_widths = {
+        'vod_no': 8, 'sId': 10, 'appId': 10, 'seriesName': 30, 'volumnCount': 10,
+        'description': 50, 'seriesFlag': 12, 'sortName': 20, 'programType': 15,
+        'releaseYear': 12, 'language': 10, 'rating': 8, 'originalCountry': 12,
+        'pgmCategory': 10, 'pgmSedClass': 20, 'director': 15, 'actorDisplay': 20,
+        'vod_info_no': 10, 'pId': 10, 'programName': 35, 'type': 8,
+        'fileURL': 60, 'duration': 12, 'bitRateType': 12, 'mediaSpec': 40,
+        'picture_no': 10, 'picId': 10, 'sequence': 8,
+    }
+    
+    # 预创建对齐样式（复用对象，减少内存）
+    header_alignment = Alignment(wrap_text=False, vertical='center', horizontal='center')
+    data_alignment = Alignment(wrap_text=False, vertical='center')
+    
     for sheet_name in workbook.sheetnames:
         if sheet_name not in headers_config:
             continue
@@ -421,49 +450,30 @@ def _format_jiangsu_excel(writer):
         # 插入一行作为第二行（中文说明行）
         sheet.insert_rows(2)
         
-        # 第1行已经是pandas写入的列名，覆盖为英文字段名
-        for col_idx, value in enumerate(config['row1'], 1):
-            cell = sheet.cell(row=1, column=col_idx)
-            cell.value = value
-            cell.alignment = Alignment(wrap_text=False, vertical='center', horizontal='center')
-            cell.fill = header_fill
-            cell.border = thin_border
-        
-        # 写入第2行中文说明
-        for col_idx, value in enumerate(config['row2'], 1):
-            cell = sheet.cell(row=2, column=col_idx)
-            cell.value = value
-            cell.alignment = Alignment(wrap_text=False, vertical='center', horizontal='center')
-            cell.fill = header_fill
-            cell.border = thin_border
-        
         # 设置行高
         sheet.row_dimensions[1].height = 20
         sheet.row_dimensions[2].height = 20
         
-        # 调整列宽：根据英文字段名和中文表头计算，设置合理宽度
-        col_widths = {
-            # 剧头表
-            'vod_no': 8, 'sId': 10, 'appId': 10, 'seriesName': 30, 'volumnCount': 10,
-            'description': 50, 'seriesFlag': 12, 'sortName': 20, 'programType': 15,
-            'releaseYear': 12, 'language': 10, 'rating': 8, 'originalCountry': 12,
-            'pgmCategory': 10, 'pgmSedClass': 20, 'director': 15, 'actorDisplay': 20,
-            # 子集表
-            'vod_info_no': 10, 'pId': 10, 'programName': 35, 'type': 8,
-            'fileURL': 60, 'duration': 12, 'bitRateType': 12, 'mediaSpec': 40,
-            # 图片表
-            'picture_no': 10, 'picId': 10, 'sequence': 8,
-        }
-        
+        # 处理表头和列宽（只处理表头行，不处理数据行）
         for col_idx, field_name in enumerate(config['row1'], 1):
             col_letter = get_column_letter(col_idx)
-            col_width = col_widths.get(field_name, 15)
-            sheet.column_dimensions[col_letter].width = col_width
             
-            # 设置数据行：不换行
-            for row_idx in range(3, sheet.max_row + 1):
-                cell = sheet.cell(row=row_idx, column=col_idx)
-                cell.alignment = Alignment(wrap_text=False, vertical='center')
+            # 设置列宽
+            sheet.column_dimensions[col_letter].width = col_widths.get(field_name, 15)
+            
+            # 第1行：英文字段名
+            cell1 = sheet.cell(row=1, column=col_idx)
+            cell1.value = field_name
+            cell1.alignment = header_alignment
+            cell1.fill = header_fill
+            cell1.border = thin_border
+            
+            # 第2行：中文说明
+            cell2 = sheet.cell(row=2, column=col_idx)
+            cell2.value = config['row2'][col_idx - 1]
+            cell2.alignment = header_alignment
+            cell2.fill = header_fill
+            cell2.border = thin_border
 
 
 @router.get("/export/customer/{customer_code}")
@@ -634,6 +644,41 @@ async def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
             drama_columns = _get_column_names(customer_code, 'drama')
             episode_columns = _get_column_names(customer_code, 'episode')
             
+            # 批量查询所有子集（性能优化：一次查询替代N次查询）
+            drama_ids = [d['drama_id'] for d in dramas]
+            placeholders_episodes = ','.join(['%s'] * len(drama_ids))
+            cursor.execute(
+                f"SELECT * FROM drama_episode WHERE drama_id IN ({placeholders_episodes}) ORDER BY drama_id, episode_id",
+                drama_ids
+            )
+            all_episodes_raw = cursor.fetchall()
+            
+            # 预解析所有JSON（性能优化：避免重复解析）
+            for drama in dramas:
+                drama['_parsed_props'] = parse_json(drama)
+            
+            for episode in all_episodes_raw:
+                episode['_parsed_props'] = parse_json(episode)
+            
+            # 预计算所有拼音缩写（性能优化：避免重复计算）
+            for drama in dramas:
+                drama['_pinyin_abbr'] = get_pinyin_abbr(drama['drama_name'])
+            
+            # 按drama_id分组子集
+            episodes_by_drama = {}
+            for episode in all_episodes_raw:
+                drama_id = episode['drama_id']
+                if drama_id not in episodes_by_drama:
+                    episodes_by_drama[drama_id] = []
+                episodes_by_drama[drama_id].append(episode)
+            
+            # 预获取配置（避免重复查询）
+            config = CUSTOMER_CONFIGS[customer_code]
+            drama_columns = _get_column_names(customer_code, 'drama')
+            episode_columns = _get_column_names(customer_code, 'episode')
+            drama_col_configs = config.get('drama_columns', [])
+            episode_col_configs = config.get('episode_columns', [])
+            
             # 构建剧头数据
             drama_list = []
             all_episodes = []
@@ -645,7 +690,8 @@ async def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
             
             for drama in dramas:
                 drama_sequence += 1
-                header_dict = _build_drama_display_dict(drama, customer_code)
+                # 使用预获取的配置构建剧头数据
+                header_dict = _build_drama_display_dict_fast(drama, customer_code, drama_col_configs)
                 
                 # 设置序号
                 header_dict['vod_no'] = drama_sequence
@@ -653,16 +699,13 @@ async def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
                 
                 drama_list.append(header_dict)
                 
-                # 获取子集
-                cursor.execute(
-                    "SELECT * FROM drama_episode WHERE drama_id = %s ORDER BY episode_id",
-                    (drama['drama_id'],)
-                )
-                episodes = cursor.fetchall()
+                # 获取该剧集的子集（从已查询的数据中获取）
+                episodes = episodes_by_drama.get(drama['drama_id'], [])
                 
                 for episode in episodes:
                     episode_sequence += 1
-                    ep_data = _build_episode_display_dict(episode, customer_code)
+                    # 使用预获取的配置构建子集数据
+                    ep_data = _build_episode_display_dict_fast(episode, customer_code, episode_col_configs)
                     
                     # 设置序号
                     ep_data['vod_info_no'] = episode_sequence
@@ -730,3 +773,269 @@ async def delete_drama(drama_id: int):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/extract-names-from-excel")
+async def extract_drama_names_from_excel(file: bytes = Body(...)):
+    """
+    从Excel文件中提取剧集名称列
+    用于江苏新媒体批量搜索功能
+    """
+    try:
+        # 使用pandas读取Excel
+        excel_data = BytesIO(file)
+        df = pd.read_excel(excel_data, dtype=str).fillna('')
+        
+        if df.empty:
+            raise HTTPException(status_code=400, detail="Excel文件为空")
+        
+        # 查找剧集名称列
+        possible_names = ['剧集名称', '名称', '剧名', '片名', '内容名称', 'seriesName', '剧头名称']
+        name_column = None
+        
+        for col in df.columns:
+            col_str = str(col).strip()
+            if any(name in col_str for name in possible_names):
+                name_column = col
+                break
+        
+        if name_column is None:
+            # 如果没找到，尝试第一列
+            name_column = df.columns[0]
+        
+        # 提取剧集名称（去除空值）
+        drama_names = []
+        for value in df[name_column]:
+            name = str(value).strip()
+            if name and name != '' and name.lower() != 'nan':
+                drama_names.append(name)
+        
+        if not drama_names:
+            raise HTTPException(status_code=400, detail="Excel文件中没有找到有效的剧集名称")
+        
+        return {
+            "code": 200,
+            "message": "提取成功",
+            "data": {
+                "drama_names": drama_names,
+                "count": len(drama_names),
+                "column_name": str(name_column)
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"解析Excel失败: {str(e)}")
+
+
+@router.post("/import-and-query-excel")
+async def import_and_query_excel(
+    file: bytes = Body(...),
+    customer_code: str = Query(...)
+):
+    """
+    从Excel导入并直接查询剧集信息
+    一步到位：解析Excel → 提取剧集名称 → 批量查询 → 返回结果
+    """
+    try:
+        # 1. 解析Excel，提取剧集名称
+        excel_data = BytesIO(file)
+        df = pd.read_excel(excel_data, dtype=str).fillna('')
+        
+        if df.empty:
+            raise HTTPException(status_code=400, detail="Excel文件为空")
+        
+        # 查找剧集名称列
+        possible_names = ['剧集名称', '名称', '剧名', '片名', '内容名称', 'seriesName', '剧头名称']
+        name_column = None
+        
+        for col in df.columns:
+            col_str = str(col).strip()
+            if any(name in col_str for name in possible_names):
+                name_column = col
+                break
+        
+        if name_column is None:
+            name_column = df.columns[0]
+        
+        # 提取剧集名称
+        drama_names = []
+        for value in df[name_column]:
+            name = str(value).strip()
+            if name and name != '' and name.lower() != 'nan':
+                drama_names.append(name)
+        
+        if not drama_names:
+            raise HTTPException(status_code=400, detail="Excel文件中没有找到有效的剧集名称")
+        
+        # 2. 批量查询剧集信息
+        with get_db() as conn:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            
+            # 批量查询剧头信息
+            placeholders = ','.join(['%s'] * len(drama_names))
+            query = f"""
+                SELECT drama_id, drama_name, dynamic_properties
+                FROM drama_main
+                WHERE customer_code = %s AND drama_name IN ({placeholders})
+            """
+            cursor.execute(query, [customer_code] + drama_names)
+            dramas = cursor.fetchall()
+            
+            # 构建剧集名称到数据的映射
+            drama_map = {}
+            drama_ids = []
+            for drama in dramas:
+                drama_name = drama['drama_name']
+                drama_map[drama_name] = {
+                    'drama_id': drama['drama_id'],
+                    'drama_name': drama_name,
+                    'properties': parse_json(drama)
+                }
+                drama_ids.append(drama['drama_id'])
+            
+            # 批量查询子集数量
+            episode_counts = {}
+            if drama_ids:
+                placeholders = ','.join(['%s'] * len(drama_ids))
+                cursor.execute(
+                    f"SELECT drama_id, COUNT(*) as episode_count FROM drama_episode WHERE drama_id IN ({placeholders}) GROUP BY drama_id",
+                    drama_ids
+                )
+                episode_counts = {row['drama_id']: row['episode_count'] for row in cursor.fetchall()}
+            
+            # 3. 构建返回结果
+            results = []
+            for name in drama_names:
+                if name in drama_map:
+                    drama_info = drama_map[name]
+                    drama_id = drama_info['drama_id']
+                    props = drama_info['properties']
+                    
+                    # 获取关键信息
+                    description = props.get('description', '') or props.get('简介', '')
+                    
+                    results.append({
+                        'name': name,
+                        'found': True,
+                        'drama_id': drama_id,
+                        'episode_count': episode_counts.get(drama_id, 0),
+                        'description': description
+                    })
+                else:
+                    results.append({
+                        'name': name,
+                        'found': False
+                    })
+        
+        return {
+            "code": 200,
+            "message": "导入并查询成功",
+            "data": {
+                "results": results,
+                "total": len(drama_names),
+                "found": len([r for r in results if r['found']]),
+                "not_found": len([r for r in results if not r['found']]),
+                "column_name": str(name_column)
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导入并查询失败: {str(e)}")
+
+
+
+@router.post("/batch-query")
+async def batch_query_dramas(
+    drama_names: List[str] = Body(..., embed=True),
+    customer_code: str = Body(...)
+):
+    """
+    批量查询剧集信息
+    用于优化江苏新媒体批量搜索性能
+    """
+    try:
+        if not drama_names:
+            raise HTTPException(status_code=400, detail="剧集名称列表不能为空")
+        
+        if not customer_code:
+            raise HTTPException(status_code=400, detail="客户代码不能为空")
+        
+        with get_db() as conn:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            
+            # 批量查询剧头信息（使用IN查询）
+            placeholders = ','.join(['%s'] * len(drama_names))
+            query = f"""
+                SELECT drama_id, drama_name, dynamic_properties
+                FROM drama_main
+                WHERE customer_code = %s AND drama_name IN ({placeholders})
+            """
+            cursor.execute(query, [customer_code] + drama_names)
+            dramas = cursor.fetchall()
+            
+            # 构建剧集名称到数据的映射
+            drama_map = {}
+            drama_ids = []
+            for drama in dramas:
+                drama_name = drama['drama_name']
+                drama_map[drama_name] = {
+                    'drama_id': drama['drama_id'],
+                    'drama_name': drama_name,
+                    'properties': parse_json(drama)
+                }
+                drama_ids.append(drama['drama_id'])
+            
+            # 批量查询子集数量
+            if drama_ids:
+                placeholders = ','.join(['%s'] * len(drama_ids))
+                cursor.execute(
+                    f"SELECT drama_id, COUNT(*) as episode_count FROM drama_episode WHERE drama_id IN ({placeholders}) GROUP BY drama_id",
+                    drama_ids
+                )
+                episode_counts = {row['drama_id']: row['episode_count'] for row in cursor.fetchall()}
+            else:
+                episode_counts = {}
+            
+            # 构建返回结果
+            results = []
+            for name in drama_names:
+                if name in drama_map:
+                    drama_info = drama_map[name]
+                    drama_id = drama_info['drama_id']
+                    props = drama_info['properties']
+                    
+                    # 获取关键信息
+                    description = props.get('description', '') or props.get('简介', '')
+                    
+                    results.append({
+                        'name': name,
+                        'found': True,
+                        'drama_id': drama_id,
+                        'episode_count': episode_counts.get(drama_id, 0),
+                        'description': description
+                    })
+                else:
+                    results.append({
+                        'name': name,
+                        'found': False
+                    })
+        
+        return {
+            "code": 200,
+            "message": "查询成功",
+            "data": {
+                "results": results,
+                "total": len(drama_names),
+                "found": len([r for r in results if r['found']]),
+                "not_found": len([r for r in results if not r['found']])
+            }
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"批量查询失败: {str(e)}")

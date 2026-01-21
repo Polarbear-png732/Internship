@@ -552,31 +552,36 @@ async function showBatchSelectionUI(dramaNames) {
     batchSelectionState.allDramas = dramaNames;
     
     // 显示加载状态
-    dramaSelectionList.innerHTML = '<div class="text-center py-4 text-slate-500">正在加载剧集信息...</div>';
+    dramaSelectionList.innerHTML = `<div class="text-center py-4 text-slate-500">
+        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+        <div>正在加载 ${dramaNames.length} 个剧集信息...</div>
+    </div>`;
     batchSelectionArea.classList.remove('hidden');
     
-    // 批量查询剧集信息
+    // 使用批量查询API（性能优化）
     try {
-        const dramaInfoPromises = dramaNames.map(async (name) => {
-            try {
-                const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(name)}&customer_code=${encodeURIComponent(currentCustomerCode)}`);
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.code === 200 && result.data) {
-                        return {
-                            name: name,
-                            found: true,
-                            data: result.data
-                        };
-                    }
-                }
-                return { name: name, found: false };
-            } catch (error) {
-                return { name: name, found: false };
-            }
+        const response = await fetch(`${API_BASE}/dramas/batch-query`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                drama_names: dramaNames,
+                customer_code: currentCustomerCode
+            })
         });
         
-        const dramaInfos = await Promise.all(dramaInfoPromises);
+        if (!response.ok) {
+            throw new Error('批量查询失败');
+        }
+        
+        const result = await response.json();
+        
+        if (result.code !== 200 || !result.data || !result.data.results) {
+            throw new Error('返回数据格式错误');
+        }
+        
+        const dramaInfos = result.data.results;
         
         // 渲染剧集列表（带详细信息）
         dramaSelectionList.innerHTML = dramaInfos.map((info, index) => {
@@ -593,11 +598,9 @@ async function showBatchSelectionUI(dramaNames) {
                 `;
             }
             
-            const header = info.data.header;
-            const episodes = info.data.episodes || [];
-            const dramaId = header.sId || header.vod_no || '';
-            const episodeCount = episodes.length;
-            const description = header.description || '';
+            const dramaId = info.drama_id || '';
+            const episodeCount = info.episode_count || 0;
+            const description = info.description || '';
             const shortDesc = description.length > 50 ? description.substring(0, 50) + '...' : description;
             
             return `
@@ -626,6 +629,13 @@ async function showBatchSelectionUI(dramaNames) {
             `;
         }).join('');
         
+        // 显示统计信息
+        const foundCount = result.data.found;
+        const notFoundCount = result.data.not_found;
+        if (notFoundCount > 0) {
+            showSuccess(`加载完成：找到 ${foundCount} 个剧集，${notFoundCount} 个未找到`);
+        }
+        
         // 更新选中计数
         updateSelectedCount();
         
@@ -635,6 +645,7 @@ async function showBatchSelectionUI(dramaNames) {
                 加载失败：${error.message}
             </div>
         `;
+        showError('加载剧集信息失败：' + error.message);
     }
 }
 
@@ -694,6 +705,134 @@ function clearAllSelections() {
     });
     
     updateSelectedCount();
+}
+
+// 处理Excel文件上传
+async function handleExcelUpload(event) {
+    const file = event.target.files[0];
+    if (!file) {
+        return;
+    }
+    
+    // 检查文件类型
+    const fileName = file.name.toLowerCase();
+    if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls')) {
+        showError('请上传Excel文件（.xlsx 或 .xls）');
+        event.target.value = '';
+        return;
+    }
+    
+    // 显示批量选择区域和加载状态
+    const batchSelectionArea = document.getElementById('batch-selection-area');
+    const dramaSelectionList = document.getElementById('drama-selection-list');
+    
+    batchSelectionArea.classList.remove('hidden');
+    dramaSelectionList.innerHTML = `<div class="text-center py-8 text-slate-500">
+        <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+        <div class="text-lg font-medium">正在读取Excel并查询剧集信息...</div>
+        <div class="text-sm mt-2">请稍候，这可能需要几秒钟</div>
+    </div>`;
+    
+    try {
+        // 读取文件为二进制数据
+        const fileData = await file.arrayBuffer();
+        
+        // 调用后端一体化API：解析Excel + 批量查询
+        const response = await fetch(`${API_BASE}/dramas/import-and-query-excel?customer_code=${encodeURIComponent(currentCustomerCode)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/octet-stream'
+            },
+            body: fileData
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || '处理失败');
+        }
+        
+        const result = await response.json();
+        
+        if (result.code !== 200 || !result.data || !result.data.results) {
+            throw new Error('返回数据格式错误');
+        }
+        
+        // 重置批量选择状态
+        const dramaNames = result.data.results.map(r => r.name);
+        batchSelectionState.selectedDramas.clear();
+        batchSelectionState.allDramas = dramaNames;
+        
+        const dramaInfos = result.data.results;
+        
+        // 渲染剧集列表
+        dramaSelectionList.innerHTML = dramaInfos.map((info, index) => {
+            if (!info.found) {
+                return `
+                    <div class="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <input type="checkbox" id="drama-checkbox-${index}" value="${info.name}" disabled
+                            class="w-4 h-4 text-slate-400 border-slate-300 rounded opacity-50 cursor-not-allowed">
+                        <div class="flex-1">
+                            <div class="text-slate-900 font-medium">${info.name}</div>
+                            <div class="text-xs text-red-600 mt-1">❌ 未找到该剧集</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            const dramaId = info.drama_id || '';
+            const episodeCount = info.episode_count || 0;
+            const description = info.description || '';
+            const shortDesc = description.length > 50 ? description.substring(0, 50) + '...' : description;
+            
+            return `
+                <div class="flex items-start gap-3 p-3 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200">
+                    <input type="checkbox" id="drama-checkbox-${index}" value="${info.name}" 
+                        onchange="toggleDramaSelection('${info.name.replace(/'/g, "\\'")}')"
+                        class="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 mt-1">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-slate-900 font-semibold">${info.name}</span>
+                            <span class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">ID: ${dramaId}</span>
+                        </div>
+                        <div class="flex items-center gap-3 text-xs text-slate-600">
+                            <span class="flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+                                    <line x1="3" x2="21" y1="9" y2="9"/>
+                                    <line x1="9" x2="9" y1="21" y2="9"/>
+                                </svg>
+                                ${episodeCount} 集
+                            </span>
+                            ${shortDesc ? `<span class="text-slate-500 truncate" title="${description}">${shortDesc}</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        // 清空文件选择
+        event.target.value = '';
+        
+        // 显示统计信息
+        const foundCount = result.data.found;
+        const notFoundCount = result.data.not_found;
+        const totalCount = result.data.total;
+        
+        showSuccess(`成功导入 ${totalCount} 个剧集（识别列：${result.data.column_name}）：找到 ${foundCount} 个，未找到 ${notFoundCount} 个`);
+        
+        // 更新选中计数
+        updateSelectedCount();
+        
+    } catch (error) {
+        dramaSelectionList.innerHTML = `
+            <div class="text-center py-8">
+                <div class="text-red-500 text-lg font-medium mb-2">❌ 加载失败</div>
+                <div class="text-slate-600">${error.message}</div>
+            </div>
+        `;
+        showError('Excel导入失败：' + error.message);
+        event.target.value = '';
+    }
 }
 
 // 批量导出江苏新媒体

@@ -164,27 +164,79 @@
                     </div>
 
                     <!-- 搜索框和按钮 -->
-                    <div class="flex items-center gap-3">
-                        <div class="relative flex-1 max-w-md">
-                            <!-- Search Icon -->
-                            <div class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    <div class="flex flex-col gap-3">
+                        <!-- 江苏新媒体的大文本框 -->
+                        <div id="jiangsu-search-container" class="hidden">
+                            <textarea id="header-search-textarea" rows="6"
+                                class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white resize-none transition-all"
+                                placeholder="请输入剧集名称，每行一个名称。例如：&#10;黑道家族&#10;火线&#10;缓冲之战"></textarea>
+                            <div class="mt-2 flex items-center justify-between">
+                                <div class="text-xs text-slate-700 font-semibold">
+                                    提示：支持从 Excel 或 TXT 直接粘贴列表
+                                </div>
+                                <button onclick="searchDramaHeaderDirect()" 
+                                    class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg transition-colors font-medium shadow-md shadow-blue-600/20 whitespace-nowrap">
+                                    搜索
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- 其他客户的单行搜索框 -->
+                        <div id="normal-search-container" class="flex items-center gap-3">
+                            <div class="relative flex-1 max-w-md">
+                                <div class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="11" cy="11" r="8"/>
+                                        <path d="m21 21-4.3-4.3"/>
+                                    </svg>
+                                </div>
+                                <input type="text" id="header-search-input" placeholder="" 
+                                    onkeypress="if(event.key==='Enter') searchDramaHeaderDirect()"
+                                    class="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all">
+                            </div>
+                            <button onclick="searchDramaHeaderDirect()" 
+                                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors font-medium shadow-md shadow-blue-600/20 flex items-center gap-2 whitespace-nowrap">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <circle cx="11" cy="11" r="8"/>
                                     <path d="m21 21-4.3-4.3"/>
                                 </svg>
-                            </div>
-                            <input type="text" id="header-search-input" placeholder="输入剧集名称搜索..." 
-                                onkeypress="if(event.key==='Enter') searchDramaHeaderDirect()"
-                                class="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent shadow-sm transition-all">
+                                搜索
+                            </button>
                         </div>
-                        <button onclick="searchDramaHeaderDirect()" 
-                            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors font-medium shadow-md shadow-blue-600/20 flex items-center gap-2 whitespace-nowrap">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="11" cy="11" r="8"/>
-                                <path d="m21 21-4.3-4.3"/>
-                            </svg>
-                            搜索
-                        </button>
+                    </div>
+
+                    <!-- 批量选择和导出区域 -->
+                    <div id="batch-selection-area" class="hidden">
+                        <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center gap-3">
+                                    <h3 class="text-lg font-semibold text-slate-900">批量选择剧集</h3>
+                                    <span id="selected-count" class="px-2 py-1 bg-blue-100 text-blue-700 text-sm font-medium rounded">已选择 0 个</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button onclick="selectAllDramas()" 
+                                        class="text-blue-600 hover:text-blue-700 font-medium text-sm px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors">
+                                        全选
+                                    </button>
+                                    <button onclick="clearAllSelections()" 
+                                        class="text-slate-600 hover:text-slate-700 font-medium text-sm px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+                                        清空
+                                    </button>
+                                    <button onclick="exportJiangsuBatch()" id="batch-export-btn" disabled
+                                        class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg transition-colors font-medium shadow-md shadow-green-600/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                            <polyline points="7 10 12 15 17 10"/>
+                                            <line x1="12" x2="12" y1="15" y2="3"/>
+                                        </svg>
+                                        批量导出江苏新媒体
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="drama-selection-list" class="space-y-2 max-h-96 overflow-y-auto">
+                                <!-- 剧集列表将显示在这里 -->
+                            </div>
+                        </div>
                     </div>
 
                     <!-- 搜索结果直接显示区域 -->

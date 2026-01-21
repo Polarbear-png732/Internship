@@ -5,7 +5,7 @@
 """
 from fastapi import APIRouter, HTTPException, Query, Body
 from fastapi.responses import StreamingResponse
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import pymysql
 import pandas as pd
 import json
@@ -587,6 +587,131 @@ async def export_customer_dramas(customer_code: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/export/batch/jiangsu_newmedia")
+async def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
+    """
+    批量导出江苏新媒体剧集
+    
+    参数：
+    - drama_names: 剧集名称列表，例如：["剧集1", "剧集2", "剧集3"]
+    
+    返回：Excel文件（包含剧头、子集、图片三个sheet）
+    """
+    customer_code = 'jiangsu_newmedia'
+    
+    if not drama_names or len(drama_names) == 0:
+        raise HTTPException(status_code=400, detail="请提供至少一个剧集名称")
+    
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            
+            # 构建查询条件：查找江苏新媒体客户的指定剧集
+            placeholders = ','.join(['%s'] * len(drama_names))
+            query = f"""
+                SELECT * FROM drama_main 
+                WHERE customer_code = %s AND drama_name IN ({placeholders})
+                ORDER BY drama_id
+            """
+            cursor.execute(query, (customer_code, *drama_names))
+            dramas = cursor.fetchall()
+            
+            if not dramas:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"未找到匹配的江苏新媒体剧集。请检查剧集名称是否正确。"
+                )
+            
+            # 检查是否有剧集未找到
+            found_names = {d['drama_name'] for d in dramas}
+            missing_names = set(drama_names) - found_names
+            if missing_names:
+                print(f"警告：以下剧集未找到: {', '.join(missing_names)}")
+            
+            config = CUSTOMER_CONFIGS[customer_code]
+            drama_columns = _get_column_names(customer_code, 'drama')
+            episode_columns = _get_column_names(customer_code, 'episode')
+            
+            # 构建剧头数据
+            drama_list = []
+            all_episodes = []
+            all_pictures = []
+            
+            drama_sequence = 0
+            episode_sequence = 0
+            picture_sequence = 0
+            
+            for drama in dramas:
+                drama_sequence += 1
+                header_dict = _build_drama_display_dict(drama, customer_code)
+                
+                # 设置序号
+                header_dict['vod_no'] = drama_sequence
+                header_dict['sId'] = None  # sId留空
+                
+                drama_list.append(header_dict)
+                
+                # 获取子集
+                cursor.execute(
+                    "SELECT * FROM drama_episode WHERE drama_id = %s ORDER BY episode_id",
+                    (drama['drama_id'],)
+                )
+                episodes = cursor.fetchall()
+                
+                for episode in episodes:
+                    episode_sequence += 1
+                    ep_data = _build_episode_display_dict(episode, customer_code)
+                    
+                    # 设置序号
+                    ep_data['vod_info_no'] = episode_sequence
+                    ep_data['vod_no'] = drama_sequence  # 关联剧头序号
+                    ep_data['sId'] = None  # sId留空
+                    ep_data['pId'] = None  # pId留空
+                    
+                    all_episodes.append(ep_data)
+                
+                # 图片数据
+                for pic in _build_picture_data(drama, customer_code):
+                    picture_sequence += 1
+                    pic['picture_no'] = picture_sequence
+                    pic['vod_no'] = drama_sequence
+                    all_pictures.append(pic)
+            
+            # 创建DataFrame
+            drama_df = pd.DataFrame(drama_list, columns=drama_columns)
+            episode_df = pd.DataFrame(all_episodes, columns=episode_columns)
+            picture_columns = [col['col'] for col in config.get('picture_columns', [])]
+            picture_df = pd.DataFrame(all_pictures, columns=picture_columns)
+        
+        # 生成Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            drama_df.to_excel(writer, sheet_name='剧头', index=False)
+            episode_df.to_excel(writer, sheet_name='子集', index=False)
+            picture_df.to_excel(writer, sheet_name='图片', index=False)
+            
+            # 使用江苏新媒体特殊格式
+            _format_jiangsu_excel(writer)
+        
+        output.seek(0)
+        
+        # 生成文件名
+        if len(dramas) == 1:
+            filename = f"江苏新媒体_{dramas[0]['drama_name']}_注入表.xlsx"
+        else:
+            filename = f"江苏新媒体_批量导出_{len(dramas)}个剧集.xlsx"
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
 
 
 @router.delete("/{drama_id}")

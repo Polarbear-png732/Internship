@@ -69,9 +69,9 @@ function showPage(pageId) {
         loadCustomerList();
     }
     
-    // 如果是剧头管理页面（从导航栏点击），清除用户筛选并加载所有剧头
+    // 如果是剧头管理页面（从导航栏点击），清除用户筛选
     if (pageId === 'drama-header-management') {
-        loadAllDramaHeaders(1);
+        // 不需要加载数据，等待用户搜索
     }
     
     // 如果是版权方数据页面，加载列表
@@ -83,7 +83,25 @@ function showPage(pageId) {
 // 从导航栏点击剧头管理（显示所有剧头）
 function showDramaHeaderManagement() {
     currentCustomerId = null;
+    currentCustomerCode = null;
     currentCustomerName = '';
+    
+    // 重置搜索框为默认状态（显示普通搜索框，隐藏江苏容器）
+    const jiangsuContainer = document.getElementById('jiangsu-search-container');
+    const normalContainer = document.getElementById('normal-search-container');
+    
+    if (jiangsuContainer) {
+        jiangsuContainer.classList.add('hidden');
+    }
+    if (normalContainer) {
+        normalContainer.classList.remove('hidden');
+        const searchInput = document.getElementById('header-search-input');
+        if (searchInput) {
+            searchInput.placeholder = '';
+            searchInput.value = '';
+        }
+    }
+    
     showPage('drama-header-management');
 }
 
@@ -178,6 +196,10 @@ function viewCustomerDramas(customerCode, customerName) {
     currentCustomerName = customerName;
     currentCustomerId = customerCode;  // 兼容旧代码
     
+    console.log('=== viewCustomerDramas ===');
+    console.log('customerCode:', customerCode);
+    console.log('customerName:', customerName);
+    
     // 切换到剧头管理页面
     showPage('drama-header-management');
     
@@ -187,15 +209,58 @@ function viewCustomerDramas(customerCode, customerName) {
         headerTitle.textContent = `${customerName} - 剧头管理`;
     }
     
-    // 清空搜索框和结果
-    const searchInput = document.getElementById('header-search-input');
-    if (searchInput) {
-        searchInput.value = '';
+    // 根据客户类型切换搜索容器
+    const jiangsuContainer = document.getElementById('jiangsu-search-container');
+    const normalContainer = document.getElementById('normal-search-container');
+    
+    console.log('jiangsuContainer:', jiangsuContainer);
+    console.log('normalContainer:', normalContainer);
+    
+    if (customerCode === 'jiangsu_newmedia') {
+        console.log('切换到江苏新媒体模式 - 显示大文本框');
+        // 江苏新媒体：显示大文本框容器，隐藏单行搜索框容器
+        if (jiangsuContainer) {
+            jiangsuContainer.classList.remove('hidden');
+            console.log('显示江苏容器');
+            // 清空textarea内容
+            const textarea = document.getElementById('header-search-textarea');
+            if (textarea) {
+                textarea.value = '';
+            }
+        }
+        if (normalContainer) {
+            normalContainer.classList.add('hidden');
+            console.log('隐藏普通容器');
+        }
+    } else {
+        console.log('切换到其他客户模式 - 显示单行搜索框');
+        // 其他客户：隐藏大文本框容器，显示单行搜索框容器
+        if (jiangsuContainer) {
+            jiangsuContainer.classList.add('hidden');
+            console.log('隐藏江苏容器');
+        }
+        if (normalContainer) {
+            normalContainer.classList.remove('hidden');
+            console.log('显示普通容器');
+            // 清空input内容
+            const input = document.getElementById('header-search-input');
+            if (input) {
+                input.value = '';
+            }
+        }
     }
+    
+    // 清空搜索结果
     const resultContainer = document.getElementById('header-search-result');
     if (resultContainer) {
         resultContainer.classList.add('hidden');
         resultContainer.innerHTML = '';
+    }
+    
+    // 隐藏批量选择区域
+    const batchSelectionArea = document.getElementById('batch-selection-area');
+    if (batchSelectionArea) {
+        batchSelectionArea.classList.add('hidden');
     }
 }
 
@@ -348,12 +413,21 @@ async function saveDramaEdit() {
 
 // 剧头管理页面 - 直接搜索并显示结果
 async function searchDramaHeaderDirect() {
-    const keyword = document.getElementById('header-search-input')?.value?.trim() || '';
+    // 根据客户类型获取搜索关键词
+    let keyword = '';
+    if (currentCustomerCode === 'jiangsu_newmedia') {
+        keyword = document.getElementById('header-search-textarea')?.value?.trim() || '';
+    } else {
+        keyword = document.getElementById('header-search-input')?.value?.trim() || '';
+    }
+    
     const resultContainer = document.getElementById('header-search-result');
+    const batchSelectionArea = document.getElementById('batch-selection-area');
     
     if (!keyword) {
         showError('请输入剧集名称进行搜索');
         resultContainer.classList.add('hidden');
+        batchSelectionArea.classList.add('hidden');
         return;
     }
     
@@ -363,9 +437,40 @@ async function searchDramaHeaderDirect() {
         return;
     }
     
+    // 检查是否是江苏新媒体客户，且输入包含换行（批量搜索）
+    const isJiangsu = currentCustomerCode === 'jiangsu_newmedia';
+    let dramaNames = [];
+    
+    if (isJiangsu) {
+        // 江苏新媒体：按换行分隔
+        dramaNames = keyword.split(/\r?\n/).map(name => name.trim()).filter(name => name.length > 0);
+    } else {
+        // 其他客户：单个剧集
+        dramaNames = [keyword];
+    }
+    
+    const isBatchSearch = dramaNames.length > 1;
+    
+    console.log('=== 批量搜索调试 ===');
+    console.log('currentCustomerCode:', currentCustomerCode);
+    console.log('isJiangsu:', isJiangsu);
+    console.log('keyword:', keyword);
+    console.log('dramaNames:', dramaNames);
+    console.log('dramaNames.length:', dramaNames.length);
+    console.log('isBatchSearch:', isBatchSearch);
+    
+    // 如果是江苏新媒体且是批量搜索，显示批量选择界面
+    if (isJiangsu && isBatchSearch) {
+        await showBatchSelectionUI(dramaNames);
+        resultContainer.classList.add('hidden');
+        return;
+    }
+    
+    // 单个剧集搜索（原有逻辑）
+    const singleDramaName = dramaNames[0];
     try {
         // 使用搜索API获取剧集详情，传递customer_code参数
-        const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(keyword)}&customer_code=${encodeURIComponent(currentCustomerCode)}`);
+        const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(singleDramaName)}&customer_code=${encodeURIComponent(currentCustomerCode)}`);
         
         if (!response.ok) {
             const error = await response.json();
@@ -381,6 +486,7 @@ async function searchDramaHeaderDirect() {
                 </div>
             `;
             resultContainer.classList.remove('hidden');
+            batchSelectionArea.classList.add('hidden');
             return;
         }
         
@@ -413,6 +519,7 @@ async function searchDramaHeaderDirect() {
             // 在当前页面下方显示详情（使用动态列配置）
             renderDramaDetailInline(header, episodes, resultContainer);
             resultContainer.classList.remove('hidden');
+            batchSelectionArea.classList.add('hidden');
         } else {
             resultContainer.innerHTML = `
                 <div class="bg-white border border-slate-200 rounded-xl p-8 text-center">
@@ -420,9 +527,248 @@ async function searchDramaHeaderDirect() {
                 </div>
             `;
             resultContainer.classList.remove('hidden');
+            batchSelectionArea.classList.add('hidden');
         }
     } catch (error) {
         showError('搜索失败：' + error.message);
+    }
+}
+
+// ==================== 江苏新媒体批量导出功能 ====================
+
+// 批量选择状态
+let batchSelectionState = {
+    selectedDramas: new Set(),  // 存储选中的剧集名称
+    allDramas: []  // 所有可选的剧集
+};
+
+// 显示批量选择UI
+async function showBatchSelectionUI(dramaNames) {
+    const batchSelectionArea = document.getElementById('batch-selection-area');
+    const dramaSelectionList = document.getElementById('drama-selection-list');
+    
+    // 重置状态
+    batchSelectionState.selectedDramas.clear();
+    batchSelectionState.allDramas = dramaNames;
+    
+    // 显示加载状态
+    dramaSelectionList.innerHTML = '<div class="text-center py-4 text-slate-500">正在加载剧集信息...</div>';
+    batchSelectionArea.classList.remove('hidden');
+    
+    // 批量查询剧集信息
+    try {
+        const dramaInfoPromises = dramaNames.map(async (name) => {
+            try {
+                const response = await fetch(`${API_BASE}/dramas/by-name?name=${encodeURIComponent(name)}&customer_code=${encodeURIComponent(currentCustomerCode)}`);
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.code === 200 && result.data) {
+                        return {
+                            name: name,
+                            found: true,
+                            data: result.data
+                        };
+                    }
+                }
+                return { name: name, found: false };
+            } catch (error) {
+                return { name: name, found: false };
+            }
+        });
+        
+        const dramaInfos = await Promise.all(dramaInfoPromises);
+        
+        // 渲染剧集列表（带详细信息）
+        dramaSelectionList.innerHTML = dramaInfos.map((info, index) => {
+            if (!info.found) {
+                return `
+                    <div class="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <input type="checkbox" id="drama-checkbox-${index}" value="${info.name}" disabled
+                            class="w-4 h-4 text-slate-400 border-slate-300 rounded opacity-50 cursor-not-allowed">
+                        <div class="flex-1">
+                            <div class="text-slate-900 font-medium">${info.name}</div>
+                            <div class="text-xs text-red-600 mt-1">❌ 未找到该剧集</div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            const header = info.data.header;
+            const episodes = info.data.episodes || [];
+            const dramaId = header.sId || header.vod_no || '';
+            const episodeCount = episodes.length;
+            const description = header.description || '';
+            const shortDesc = description.length > 50 ? description.substring(0, 50) + '...' : description;
+            
+            return `
+                <div class="flex items-start gap-3 p-3 bg-slate-50 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200">
+                    <input type="checkbox" id="drama-checkbox-${index}" value="${info.name}" 
+                        onchange="toggleDramaSelection('${info.name.replace(/'/g, "\\'")}')"
+                        class="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 mt-1">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-slate-900 font-semibold">${info.name}</span>
+                            <span class="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">ID: ${dramaId}</span>
+                        </div>
+                        <div class="flex items-center gap-3 text-xs text-slate-600">
+                            <span class="flex items-center gap-1">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+                                    <line x1="3" x2="21" y1="9" y2="9"/>
+                                    <line x1="9" x2="9" y1="21" y2="9"/>
+                                </svg>
+                                ${episodeCount} 集
+                            </span>
+                            ${shortDesc ? `<span class="text-slate-500 truncate" title="${description}">${shortDesc}</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        // 更新选中计数
+        updateSelectedCount();
+        
+    } catch (error) {
+        dramaSelectionList.innerHTML = `
+            <div class="text-center py-4 text-red-500">
+                加载失败：${error.message}
+            </div>
+        `;
+    }
+}
+
+// 切换剧集选择状态
+function toggleDramaSelection(dramaName) {
+    if (batchSelectionState.selectedDramas.has(dramaName)) {
+        batchSelectionState.selectedDramas.delete(dramaName);
+    } else {
+        batchSelectionState.selectedDramas.add(dramaName);
+    }
+    updateSelectedCount();
+}
+
+// 更新选中计数
+function updateSelectedCount() {
+    const count = batchSelectionState.selectedDramas.size;
+    const countElement = document.getElementById('selected-count');
+    const exportBtn = document.getElementById('batch-export-btn');
+    
+    if (countElement) {
+        countElement.textContent = `已选择 ${count} 个`;
+    }
+    
+    // 启用/禁用导出按钮
+    if (exportBtn) {
+        exportBtn.disabled = count === 0;
+    }
+}
+
+// 全选剧集
+function selectAllDramas() {
+    batchSelectionState.allDramas.forEach(name => {
+        batchSelectionState.selectedDramas.add(name);
+    });
+    
+    // 更新所有复选框状态
+    batchSelectionState.allDramas.forEach((name, index) => {
+        const checkbox = document.getElementById(`drama-checkbox-${index}`);
+        if (checkbox) {
+            checkbox.checked = true;
+        }
+    });
+    
+    updateSelectedCount();
+}
+
+// 清空所有选择
+function clearAllSelections() {
+    batchSelectionState.selectedDramas.clear();
+    
+    // 更新所有复选框状态
+    batchSelectionState.allDramas.forEach((name, index) => {
+        const checkbox = document.getElementById(`drama-checkbox-${index}`);
+        if (checkbox) {
+            checkbox.checked = false;
+        }
+    });
+    
+    updateSelectedCount();
+}
+
+// 批量导出江苏新媒体
+async function exportJiangsuBatch() {
+    const selectedDramas = Array.from(batchSelectionState.selectedDramas);
+    
+    if (selectedDramas.length === 0) {
+        showError('请至少选择一个剧集');
+        return;
+    }
+    
+    try {
+        // 禁用按钮，显示加载状态
+        const exportBtn = document.getElementById('batch-export-btn');
+        const originalText = exportBtn.innerHTML;
+        exportBtn.disabled = true;
+        exportBtn.innerHTML = `
+            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>导出中...</span>
+        `;
+        
+        // 调用批量导出API
+        const response = await fetch(`${API_BASE}/dramas/export/batch/jiangsu_newmedia`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                drama_names: selectedDramas
+            })
+        });
+        
+        if (response.ok) {
+            // 下载文件
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            
+            // 生成文件名
+            let filename;
+            if (selectedDramas.length === 1) {
+                filename = `江苏新媒体_${selectedDramas[0]}_注入表.xlsx`;
+            } else {
+                filename = `江苏新媒体_批量导出_${selectedDramas.length}个剧集.xlsx`;
+            }
+            a.download = filename;
+            
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            showSuccess(`成功导出 ${selectedDramas.length} 个剧集！`);
+        } else {
+            const result = await response.json();
+            showError('导出失败：' + (result.detail || '未知错误'));
+        }
+    } catch (error) {
+        showError('导出失败：' + error.message);
+    } finally {
+        // 恢复按钮状态
+        const exportBtn = document.getElementById('batch-export-btn');
+        exportBtn.disabled = false;
+        exportBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" x2="12" y1="15" y2="3"/>
+            </svg>
+            批量导出江苏新媒体
+        `;
     }
 }
 

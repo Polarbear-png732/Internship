@@ -252,6 +252,145 @@ CUSTOMER_CONFIGS = {
         'content_dir_map': {'_default': ''},
         'product_category_map': {'_default': 0},
     },
+    
+    'zhejiang_mobile': {
+        'name': '浙江移动',
+        'code': 'zjyd',
+        'is_enabled': True,
+        'export_sheets': ['剧头', '子集'],
+        
+        'drama_columns': [
+            {'col': '剧头id', 'field': 'drama_id'},
+            {'col': '剧集名称', 'field': 'drama_name'},
+            {'col': '作者列表', 'source': 'author', 'default': '佚名'},
+            {'col': '清晰度', 'value': 1},
+            {'col': '总集数', 'source': 'episode_count'},
+            {'col': '主演', 'source': 'cast_members', 'default': '佚名'},
+            {'col': '内容类型', 'source': 'category_level1', 'default': '少儿'},
+            {'col': '上映年份', 'source': 'production_year'},
+            {'col': '关键字', 'source': 'keywords', 'default': ''},
+            {'col': '导演', 'source': 'director', 'default': '佚名'},
+            {'col': '缩略图地址', 'type': 'image', 'image_type': 'thumbnail'},
+            {'col': '海报地址', 'type': 'image', 'image_type': 'poster'},
+            {'col': '产品分类', 'type': 'product_category'},
+            {'col': '描述', 'source': 'synopsis', 'default': ''},
+            {'col': '是否多集', 'type': 'is_multi_episode'},
+            {'col': '频道黑白图片', 'type': 'image', 'image_type': 'channel_bw'},
+            {'col': '频道名字图片', 'type': 'image', 'image_type': 'channel_name'},
+            {'col': '一句话描述', 'source': 'recommendation', 'default': ''},
+            {'col': '地区', 'source': 'country', 'default': '中国'},
+            {'col': '流派', 'type': 'genre'},
+        ],
+        
+        'episode_columns': [
+            {'col': '子集id', 'field': 'episode_id'},
+            {'col': '节目名称', 'type': 'episode_name_format', 'format': '{drama_name}第{ep:02d}集'},
+            {'col': '媒体拉取地址', 'type': 'media_url'},
+            {'col': '媒体类型', 'value': 1},
+            {'col': '集数', 'type': 'episode_num'},
+            {'col': '时长', 'type': 'duration'},
+            {'col': '文件大小', 'type': 'file_size'},
+            {'col': '分辨率类型', 'value': 8},
+            {'col': '码流', 'value': 53},
+        ],
+        
+        'image_url': {
+            'thumbnail': 'ftp://ftpmediazjyd:rD2q0y1M5eI@36.133.168.235:2121/picture/zjyd/{abbr}0.jpg',
+            'poster': 'ftp://ftpmediazjyd:rD2q0y1M5eI@36.133.168.235:2121/picture/zjyd/{abbr}1.jpg',
+            'channel_bw': 'ftp://ftpmediazjyd:rD2q0y1M5eI@36.133.168.235:2121/picture/zjyd/{abbr}10.jpg',
+            'channel_name': 'ftp://ftpmediazjyd:rD2q0y1M5eI@36.133.168.235:2121/picture/zjyd/{abbr}12.jpg',
+        },
+        'media_url_template': 'ftp://ftpmedia:rD2q0y!M5eI2@36.133.168.235:2121/media/zjyd/{dir}/{abbr}/{abbr}{ep:03d}.ts',
+        
+        'content_dir_map': {'电竞': 'dianjing', '教育': 'jiaoyu', '少儿': 'shaoer', '_default': 'shaoer'},
+        'product_category_map': {'教育': 1, '电竞': 2, '少儿': 3, '_default': 3},
+        'genre_map': {'教育': '幼儿', '少儿': '幼儿', '电竞': '电竞', '_default': '幼儿'},
+    },
+    
+    'xinjiang_telecom': {
+        'name': '新疆电信',
+        'code': 'xjdx',
+        'is_enabled': True,
+        'export_sheets': ['剧头', '子集'],
+        
+        'drama_columns': [
+            {'col': 'CP名称', 'value': '杭州维高'},
+            {'col': '视频部名称', 'field': 'drama_name'},
+            {'col': '内容分类', 'value': '电竞'},
+            {'col': '游戏分类', 'source': 'keywords', 'default': ''},
+            {'col': '主播', 'source': 'director', 'default': '佚名'},
+            {'col': '简介', 'source': 'synopsis', 'default': '', 'max_length': 75},
+        ],
+        
+        'episode_columns': [
+            {'col': '视频部名称', 'type': 'episode_name_format', 'format': '{drama_name} 第{ep:02d}集'},
+            {'col': '三级页面显示', 'type': 'episode_name_format', 'format': ' 第{ep:02d}集'},
+            {'col': '时长（秒）', 'type': 'duration_seconds'},
+        ],
+        
+        'image_url': {},
+        'media_url_template': '',
+        
+        'content_dir_map': {'_default': ''},
+        'product_category_map': {'_default': 0},
+    },
+    
+    'jiangxi_mobile': {
+        'name': '江西移动',
+        'code': 'jxyd',
+        'is_enabled': True,
+        'export_sheets': ['剧头', '子集'],
+        
+        'drama_columns': [
+            {'col': '剧头id', 'field': 'drama_id'},
+            {'col': '剧集名称', 'field': 'drama_name'},
+            {'col': '作者列表', 'source': 'author', 'default': '佚名'},
+            {'col': '清晰度', 'value': 1},
+            {'col': '竖版大海报地址', 'type': 'image', 'image_type': 'vertical'},
+            {'col': '拼音', 'type': 'pinyin_abbr'},
+            {'col': '语言', 'source': 'language', 'default': '普通话'},
+            {'col': '主演', 'source': 'cast_members', 'default': '佚名'},
+            {'col': '描述', 'source': 'synopsis', 'default': ''},
+            {'col': '一级分类', 'source': 'category_level1', 'default': '少儿'},
+            {'col': '二级分类', 'source': 'category_level2', 'default': ''},
+            {'col': '上映年份', 'source': 'production_year'},
+            {'col': '总集数', 'source': 'episode_count'},
+            {'col': '首播日期', 'source': 'premiere_date', 'format': 'datetime_full'},
+            {'col': '标签', 'source': 'keywords', 'default': ''},
+            {'col': '国家地区', 'source': 'country', 'default': '中国'},
+            {'col': '评分', 'source': 'rating'},
+            {'col': '时长', 'source': 'total_duration'},
+            {'col': '推荐语', 'source': 'recommendation', 'default': ''},
+            {'col': '横版海报', 'type': 'image', 'image_type': 'horizontal'},
+            {'col': '预告片', 'value': 0},
+            {'col': '编剧', 'source': 'screenwriter', 'default': '佚名'},
+            {'col': '搜索名', 'type': 'pinyin_abbr'},
+            {'col': '版权平台', 'value': 'TV'},
+            {'col': '版权开始时间', 'source': 'copyright_start_date', 'format': 'datetime_full'},
+            {'col': '版权结束时间', 'source': 'copyright_end_date', 'format': 'datetime_full'},
+            {'col': '版权区域', 'value': '江西'},
+        ],
+        
+        'episode_columns': [
+            {'col': '子集id', 'field': 'episode_id'},
+            {'col': '节目名称', 'type': 'episode_name_format', 'format': '{drama_name}第{ep:02d}集'},
+            {'col': '集数', 'type': 'episode_num'},
+            {'col': '时长', 'type': 'duration_minutes'},
+            {'col': '单集', 'type': 'is_multi_episode'},
+            {'col': '媒体拉取地址', 'type': 'media_url'},
+            {'col': 'md5', 'type': 'md5'},
+            {'col': '码率清晰度', 'value': '8M'},
+        ],
+        
+        'image_url': {
+            'vertical': 'http://120.27.12.82:28080/img/jxyd/{abbr}01.jpg',
+            'horizontal': 'http://120.27.12.82:28080/img/jxyd/{abbr}02.jpg',
+        },
+        'media_url_template': 'http://120.27.12.82:28080/hls/jxyd/{abbr}/{abbr}{ep:02d}.ts',
+        
+        'content_dir_map': {'_default': 'jxyd'},
+        'product_category_map': {'_default': 0},
+    },
 }
 
 def get_enabled_customers():

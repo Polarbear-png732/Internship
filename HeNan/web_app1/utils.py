@@ -120,13 +120,39 @@ def format_duration(seconds, format_type='HHMMSS00'):
         return f'{hours:02d}{minutes:02d}{secs:02d}00'
 
 
-def format_datetime(date_str):
-    """格式化日期时间为 YYYY-MM-DD HH:mm:ss"""
+def format_datetime(date_str, format_type='datetime'):
+    """格式化日期时间
+    format_type: 'datetime' | 'datetime_full'
+    - datetime: YYYY-MM-DD HH:mm:ss (默认)
+    - datetime_full: YYYY-MM-DD HH:mm:ss (完整格式，确保有时间部分)
+    """
     if not date_str:
         return ''
-    if isinstance(date_str, str) and len(date_str) >= 10:
-        return date_str
+    
+    # 如果已经是完整格式，直接返回
+    if isinstance(date_str, str):
+        if len(date_str) >= 19 and ':' in date_str:
+            return date_str
+        # 如果只有日期部分，添加时间
+        if format_type == 'datetime_full' and len(date_str) >= 10:
+            if ' ' not in date_str:
+                return date_str + ' 00:00:00'
+            return date_str
+        if len(date_str) >= 10:
+            return date_str
+    
     return str(date_str)
+
+
+def get_genre(content_type, customer_code='henan_mobile'):
+    """根据内容类型和客户获取流派"""
+    config = CUSTOMER_CONFIGS.get(customer_code, {})
+    mapping = config.get('genre_map', {})
+    if content_type and mapping:
+        for key, value in mapping.items():
+            if key != '_default' and key in str(content_type):
+                return value
+    return mapping.get('_default', '')
 
 
 # ============================================================
@@ -186,11 +212,17 @@ def build_drama_props(data, media_name, customer_code, scan_results=None):
                 v = re.sub(r'[,，、/／\\]', c['separator'], str(v))
             if v and c.get('suffix'):
                 v = str(v) + c['suffix']
+            # 日期时间格式化
             if c.get('format') == 'datetime':
-                v = format_datetime(v) if v else ''
+                v = format_datetime(v, 'datetime') if v else ''
+            elif c.get('format') == 'datetime_full':
+                v = format_datetime(v, 'datetime_full') if v else ''
             # 支持映射转换（如一级分类映射）
             if v and c.get('mapping'):
                 v = get_category_level1_mapped(v, customer_code)
+            # 字符串长度限制
+            if v and c.get('max_length'):
+                v = str(v)[:c['max_length']]
             props[col] = v if v is not None else ''
         elif c.get('type') == 'image':
             props[col] = get_image_url(abbr, c.get('image_type', 'vertical'), customer_code)
@@ -213,6 +245,9 @@ def build_drama_props(data, media_name, customer_code, scan_results=None):
             props[col] = total_dur
         elif c.get('type') == 'pinyin_abbr':
             props[col] = abbr
+        elif c.get('type') == 'genre':
+            cat1 = data.get('category_level1') or ''
+            props[col] = get_genre(cat1, customer_code) if cat1 else ''
         elif c.get('type') == 'sequence':
             props[col] = None
     
@@ -249,6 +284,8 @@ def build_episodes(drama_id, media_name, total_episodes, data, customer_code, sc
                 props[col] = dur_formatted
             elif c.get('type') == 'duration_minutes':
                 props[col] = format_duration(dur, 'minutes') if dur else 0
+            elif c.get('type') == 'duration_seconds':
+                props[col] = int(dur) if dur else 0
             elif c.get('type') == 'duration_hhmmss':
                 props[col] = format_duration(dur, 'HH:MM:SS') if dur else '00:00:00'
             elif c.get('type') == 'file_size':

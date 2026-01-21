@@ -19,7 +19,7 @@ from openpyxl.styles import Alignment
 from database import get_db
 from utils import (
     get_pinyin_abbr, get_content_dir, get_product_category,
-    get_image_url, get_media_url, format_duration, format_datetime
+    get_image_url, get_media_url, format_duration, format_datetime, get_genre
 )
 from config import COPYRIGHT_FIELDS, CUSTOMER_CONFIGS, get_enabled_customers
 from models import CopyrightCreate, CopyrightUpdate, CopyrightResponse
@@ -110,7 +110,12 @@ def _build_drama_props_for_customer(data, media_name, customer_code):
                 value = str(value) + col_config['suffix']
             # 处理日期格式
             if col_config.get('format') == 'datetime':
-                value = format_datetime(value)
+                value = format_datetime(value, 'datetime')
+            elif col_config.get('format') == 'datetime_full':
+                value = format_datetime(value, 'datetime_full')
+            # 字符串长度限制
+            if value and col_config.get('max_length'):
+                value = str(value)[:col_config['max_length']]
             props[col_name] = value
         # 特殊类型
         elif col_config.get('type') == 'image':
@@ -127,6 +132,9 @@ def _build_drama_props_for_customer(data, media_name, customer_code):
             props[col_name] = int(_convert_decimal(data.get('total_duration')) or 0)
         elif col_config.get('type') == 'pinyin_abbr':
             props[col_name] = abbr
+        elif col_config.get('type') == 'genre':
+            content_type = data.get('category_level1') or ''
+            props[col_name] = get_genre(content_type, customer_code)
         elif col_config.get('type') == 'sequence':
             props[col_name] = None  # 序号在导出时生成
     
@@ -353,6 +361,8 @@ def _batch_create_episodes(
                 episode_props[col_name] = duration
             elif col_config.get('type') == 'duration_minutes':
                 episode_props[col_name] = format_duration(duration, 'minutes') if duration else 0
+            elif col_config.get('type') == 'duration_seconds':
+                episode_props[col_name] = int(duration) if duration else 0
             elif col_config.get('type') == 'duration_hhmmss':
                 episode_props[col_name] = format_duration(duration, 'HH:MM:SS') if duration else '00:00:00'
             elif col_config.get('type') == 'file_size':

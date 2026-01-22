@@ -5,6 +5,7 @@
 import json
 import re
 import pandas as pd
+from functools import lru_cache
 from pypinyin import pinyin, Style
 from config import CUSTOMER_CONFIGS
 
@@ -25,8 +26,9 @@ def parse_json(data, field='dynamic_properties'):
 # 拼音和URL生成
 # ============================================================
 
+@lru_cache(maxsize=10000)
 def get_pinyin_abbr(name):
-    """生成拼音首字母缩写"""
+    """生成拼音首字母缩写（带LRU缓存，提升重复调用性能）"""
     if not name:
         return ""
     result = []
@@ -122,11 +124,51 @@ def format_duration(seconds, format_type='HHMMSS00'):
 
 def format_datetime(date_str, format_type='datetime'):
     """格式化日期时间
-    format_type: 'datetime' | 'datetime_full'
+    format_type: 'datetime' | 'datetime_full' | 'datetime_compact' | 'date_compact'
     - datetime: YYYY-MM-DD HH:mm:ss (默认)
     - datetime_full: YYYY-MM-DD HH:mm:ss (完整格式，确保有时间部分)
+    - datetime_compact: YYYYMMDDHHMMSS (紧凑格式，14位数字，如 20260120000000)
+    - date_compact: YYYYMMDD (紧凑日期格式，8位数字，如 20251201)
     """
     if not date_str:
+        return ''
+    
+    date_str = str(date_str).strip()
+    
+    # 紧凑格式：YYYYMMDDHHMMSS（14位数字）
+    if format_type == 'datetime_compact':
+        import re
+        # 移除非数字字符，提取日期时间部分
+        digits = re.sub(r'[^\d]', '', date_str)
+        
+        if len(digits) >= 8:
+            year = digits[:4]
+            month = digits[4:6]
+            day = digits[6:8]
+            # 如果有时间部分
+            if len(digits) >= 14:
+                hour = digits[8:10]
+                minute = digits[10:12]
+                second = digits[12:14]
+            elif len(digits) >= 12:
+                hour = digits[8:10]
+                minute = digits[10:12]
+                second = '00'
+            elif len(digits) >= 10:
+                hour = digits[8:10]
+                minute = '00'
+                second = '00'
+            else:
+                hour, minute, second = '00', '00', '00'
+            return f"{year}{month}{day}{hour}{minute}{second}"
+        return ''
+    
+    # 紧凑日期格式：YYYYMMDD（8位数字）
+    if format_type == 'date_compact':
+        import re
+        digits = re.sub(r'[^\d]', '', date_str)
+        if len(digits) >= 8:
+            return digits[:8]  # 只取年月日部分
         return ''
     
     # 如果已经是完整格式，直接返回
@@ -190,10 +232,10 @@ def clean_string(value, max_len=500):
 # 数据构建函数（剧头、子集）
 # ============================================================
 
-def build_drama_props(data, media_name, customer_code, scan_results=None):
+def build_drama_props(data, media_name, customer_code, scan_results=None, pinyin_cache=None):
     """构建剧头属性（配置驱动）"""
     config = CUSTOMER_CONFIGS.get(customer_code, {})
-    abbr = get_pinyin_abbr(media_name)
+    abbr = pinyin_cache.get(media_name) if pinyin_cache else get_pinyin_abbr(media_name)
     props = {}
     
     for c in config.get('drama_columns', []):
@@ -217,6 +259,16 @@ def build_drama_props(data, media_name, customer_code, scan_results=None):
                 v = format_datetime(v, 'datetime') if v else ''
             elif c.get('format') == 'datetime_full':
                 v = format_datetime(v, 'datetime_full') if v else ''
+            elif c.get('format') == 'datetime_compact':
+                v = format_datetime(v, 'datetime_compact') if v else ''
+            elif c.get('format') == 'date_compact':
+                v = format_datetime(v, 'date_compact') if v else ''
+            # 数值格式化：整数
+            elif c.get('format') == 'int':
+                try:
+                    v = int(float(v)) if v else ''
+                except (ValueError, TypeError):
+                    v = ''
             # 支持映射转换（如一级分类映射）
             if v and c.get('mapping'):
                 v = get_category_level1_mapped(v, customer_code)
@@ -254,10 +306,10 @@ def build_drama_props(data, media_name, customer_code, scan_results=None):
     return props
 
 
-def build_episodes(drama_id, media_name, total_episodes, data, customer_code, scan_results):
+def build_episodes(drama_id, media_name, total_episodes, data, customer_code, scan_results, pinyin_cache=None):
     """构建子集数据列表"""
     config = CUSTOMER_CONFIGS.get(customer_code, {})
-    abbr = get_pinyin_abbr(media_name)
+    abbr = pinyin_cache.get(media_name) if pinyin_cache else get_pinyin_abbr(media_name)
     cat1 = data.get('category_level1_henan') or data.get('category_level1') or ''
     content_dir = get_content_dir(cat1, customer_code) if cat1 else ''
     

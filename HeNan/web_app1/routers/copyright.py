@@ -113,6 +113,16 @@ def _build_drama_props_for_customer(data, media_name, customer_code):
                 value = format_datetime(value, 'datetime')
             elif col_config.get('format') == 'datetime_full':
                 value = format_datetime(value, 'datetime_full')
+            elif col_config.get('format') == 'datetime_compact':
+                value = format_datetime(value, 'datetime_compact')
+            elif col_config.get('format') == 'date_compact':
+                value = format_datetime(value, 'date_compact')
+            # 数值格式化：整数
+            elif col_config.get('format') == 'int':
+                try:
+                    value = int(float(value)) if value else ''
+                except (ValueError, TypeError):
+                    value = ''
             # 字符串长度限制
             if value and col_config.get('max_length'):
                 value = str(value)[:col_config['max_length']]
@@ -1040,6 +1050,7 @@ async def get_import_status(task_id: str):
     """获取导入任务状态（非SSE方式）
     
     返回当前任务状态，用于轮询
+    包含子集生成进度信息
     """
     task = import_service.get_task(task_id)
     if not task:
@@ -1058,6 +1069,9 @@ async def get_import_status(task_id: str):
             "failed": task.failed_count,
             "skipped": task.skipped_count,
             "percentage": int(task.processed_rows / total * 100) if task.total_rows > 0 else 0,
-            "errors": task.errors[:50] if task.status in [ImportStatus.COMPLETED, ImportStatus.FAILED] else []
+            "errors": task.errors[:50] if task.status in [ImportStatus.COMPLETED, ImportStatus.FAILED] else [],
+            # 新增：子集生成进度
+            "episode_generation_status": getattr(task, 'episode_generation_status', ''),
+            "episode_generation_progress": getattr(task, 'episode_generation_progress', 0)
         }
     }

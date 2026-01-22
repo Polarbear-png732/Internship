@@ -41,7 +41,8 @@ CREATE TABLE drama_main (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (drama_id),
     KEY fk_drama_customer (customer_id),
-    KEY idx_customer_code (customer_code)
+    KEY idx_customer_code (customer_code),
+    KEY idx_customer_code_drama_name (customer_code, drama_name(100)) COMMENT '客户代码+剧名复合索引，优化批量查询'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='剧集主表，使用JSON存储动态属性';
 
 -- ============================================

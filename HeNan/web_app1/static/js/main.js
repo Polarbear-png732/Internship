@@ -216,12 +216,15 @@ function viewCustomerDramas(customerCode, customerName) {
     console.log('jiangsuContainer:', jiangsuContainer);
     console.log('normalContainer:', normalContainer);
     
-    if (customerCode === 'jiangsu_newmedia') {
-        console.log('切换到江苏新媒体模式 - 显示大文本框');
-        // 江苏新媒体：显示大文本框容器，隐藏单行搜索框容器
+    // 支持批量搜索的客户列表
+    const batchSearchCustomers = ['jiangsu_newmedia', 'xinjiang_telecom'];
+    
+    if (batchSearchCustomers.includes(customerCode)) {
+        console.log(`切换到${customerName}模式 - 显示大文本框`);
+        // 江苏新媒体/新疆电信：显示大文本框容器，隐藏单行搜索框容器
         if (jiangsuContainer) {
             jiangsuContainer.classList.remove('hidden');
-            console.log('显示江苏容器');
+            console.log('显示批量搜索容器');
             // 清空textarea内容
             const textarea = document.getElementById('header-search-textarea');
             if (textarea) {
@@ -413,9 +416,12 @@ async function saveDramaEdit() {
 
 // 剧头管理页面 - 直接搜索并显示结果
 async function searchDramaHeaderDirect() {
+    // 支持批量搜索的客户列表
+    const batchSearchCustomers = ['jiangsu_newmedia', 'xinjiang_telecom'];
+    
     // 根据客户类型获取搜索关键词
     let keyword = '';
-    if (currentCustomerCode === 'jiangsu_newmedia') {
+    if (batchSearchCustomers.includes(currentCustomerCode)) {
         keyword = document.getElementById('header-search-textarea')?.value?.trim() || '';
     } else {
         keyword = document.getElementById('header-search-input')?.value?.trim() || '';
@@ -437,12 +443,12 @@ async function searchDramaHeaderDirect() {
         return;
     }
     
-    // 检查是否是江苏新媒体客户，且输入包含换行（批量搜索）
-    const isJiangsu = currentCustomerCode === 'jiangsu_newmedia';
+    // 检查是否是支持批量搜索的客户
+    const isBatchCustomer = batchSearchCustomers.includes(currentCustomerCode);
     let dramaNames = [];
     
-    if (isJiangsu) {
-        // 江苏新媒体：按换行分隔
+    if (isBatchCustomer) {
+        // 江苏新媒体/新疆电信：按换行分隔
         dramaNames = keyword.split(/\r?\n/).map(name => name.trim()).filter(name => name.length > 0);
     } else {
         // 其他客户：单个剧集
@@ -453,14 +459,14 @@ async function searchDramaHeaderDirect() {
     
     console.log('=== 批量搜索调试 ===');
     console.log('currentCustomerCode:', currentCustomerCode);
-    console.log('isJiangsu:', isJiangsu);
+    console.log('isBatchCustomer:', isBatchCustomer);
     console.log('keyword:', keyword);
     console.log('dramaNames:', dramaNames);
     console.log('dramaNames.length:', dramaNames.length);
     console.log('isBatchSearch:', isBatchSearch);
     
-    // 如果是江苏新媒体且是批量搜索，显示批量选择界面
-    if (isJiangsu && isBatchSearch) {
+    // 如果是支持批量搜索的客户且是批量搜索，显示批量选择界面
+    if (isBatchCustomer && isBatchSearch) {
         await showBatchSelectionUI(dramaNames);
         resultContainer.classList.add('hidden');
         return;
@@ -499,6 +505,11 @@ async function searchDramaHeaderDirect() {
             // 保存列配置
             currentDramaColumns = result.data.drama_columns || [];
             currentEpisodeColumns = result.data.episode_columns || [];
+
+            // 江苏新媒体：子集列里有两个“序号”（vod_no剧头序号+vod_info_no子集序号），详情页仅保留子集序号
+            if (currentCustomerCode === 'jiangsu_newmedia') {
+                currentEpisodeColumns = currentEpisodeColumns.filter(col => col !== 'vod_no');
+            }
             
             // 设置当前剧集信息
             // 根据客户类型获取正确的ID和名称字段
@@ -546,6 +557,12 @@ let batchSelectionState = {
 async function showBatchSelectionUI(dramaNames) {
     const batchSelectionArea = document.getElementById('batch-selection-area');
     const dramaSelectionList = document.getElementById('drama-selection-list');
+    const batchExportBtnText = document.getElementById('batch-export-btn-text');
+    
+    // 根据客户类型更新按钮文本
+    if (batchExportBtnText) {
+        batchExportBtnText.textContent = `批量导出${currentCustomerName || ''}`;
+    }
     
     // 重置状态
     batchSelectionState.selectedDramas.clear();
@@ -725,6 +742,12 @@ async function handleExcelUpload(event) {
     // 显示批量选择区域和加载状态
     const batchSelectionArea = document.getElementById('batch-selection-area');
     const dramaSelectionList = document.getElementById('drama-selection-list');
+    const batchExportBtnText = document.getElementById('batch-export-btn-text');
+    
+    // 根据客户类型更新按钮文本
+    if (batchExportBtnText) {
+        batchExportBtnText.textContent = `批量导出${currentCustomerName || ''}`;
+    }
     
     batchSelectionArea.classList.remove('hidden');
     dramaSelectionList.innerHTML = `<div class="text-center py-8 text-slate-500">
@@ -835,8 +858,8 @@ async function handleExcelUpload(event) {
     }
 }
 
-// 批量导出江苏新媒体
-async function exportJiangsuBatch() {
+// 通用批量导出函数 - 根据当前客户类型调用对应API
+async function exportBatch() {
     const selectedDramas = Array.from(batchSelectionState.selectedDramas);
     
     if (selectedDramas.length === 0) {
@@ -844,10 +867,21 @@ async function exportJiangsuBatch() {
         return;
     }
     
+    // 获取客户对应的API端点和名称
+    const customerApiMap = {
+        'jiangsu_newmedia': { endpoint: 'jiangsu_newmedia', name: '江苏新媒体' },
+        'xinjiang_telecom': { endpoint: 'xinjiang_telecom', name: '新疆电信' }
+    };
+    
+    const customerInfo = customerApiMap[currentCustomerCode];
+    if (!customerInfo) {
+        showError(`当前客户 ${currentCustomerName || currentCustomerCode} 不支持批量导出`);
+        return;
+    }
+    
     try {
         // 禁用按钮，显示加载状态
         const exportBtn = document.getElementById('batch-export-btn');
-        const originalText = exportBtn.innerHTML;
         exportBtn.disabled = true;
         exportBtn.innerHTML = `
             <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -858,7 +892,7 @@ async function exportJiangsuBatch() {
         `;
         
         // 调用批量导出API
-        const response = await fetch(`${API_BASE}/dramas/export/batch/jiangsu_newmedia`, {
+        const response = await fetch(`${API_BASE}/dramas/export/batch/${customerInfo.endpoint}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -878,9 +912,9 @@ async function exportJiangsuBatch() {
             // 生成文件名
             let filename;
             if (selectedDramas.length === 1) {
-                filename = `江苏新媒体_${selectedDramas[0]}_注入表.xlsx`;
+                filename = `${customerInfo.name}_${selectedDramas[0]}_注入表.xlsx`;
             } else {
-                filename = `江苏新媒体_批量导出_${selectedDramas.length}个剧集.xlsx`;
+                filename = `${customerInfo.name}_批量导出_${selectedDramas.length}个剧集.xlsx`;
             }
             a.download = filename;
             
@@ -899,6 +933,7 @@ async function exportJiangsuBatch() {
     } finally {
         // 恢复按钮状态
         const exportBtn = document.getElementById('batch-export-btn');
+        const batchExportBtnText = document.getElementById('batch-export-btn-text');
         exportBtn.disabled = false;
         exportBtn.innerHTML = `
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -906,9 +941,14 @@ async function exportJiangsuBatch() {
                 <polyline points="7 10 12 15 17 10"/>
                 <line x1="12" x2="12" y1="15" y2="3"/>
             </svg>
-            批量导出江苏新媒体
+            <span id="batch-export-btn-text">批量导出${currentCustomerName || ''}</span>
         `;
     }
+}
+
+// 批量导出江苏新媒体 (兼容旧调用，内部调用通用函数)
+async function exportJiangsuBatch() {
+    await exportBatch();
 }
 
 // 在剧头管理页面内联显示剧集详情（支持动态列配置）
@@ -1978,6 +2018,7 @@ function showImportComplete(data) {
     // 更新标题和图标
     const icon = document.getElementById('complete-icon');
     const title = document.getElementById('complete-title');
+    const elapsedEl = document.getElementById('complete-elapsed');
     
     if (data.status === 'failed') {
         icon.classList.remove('bg-green-100');
@@ -1989,6 +2030,20 @@ function showImportComplete(data) {
         icon.classList.add('bg-green-100');
         icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-green-600"><polyline points="20 6 9 17 4 12"/></svg>';
         title.textContent = '导入完成';
+        
+        // 显示子集生成状态
+        const episodeStatus = data.episode_generation_status || '';
+        if (episodeStatus === 'pending' || episodeStatus === 'running') {
+            elapsedEl.innerHTML = `<span class="text-blue-600">📦 子集正在后台生成中... (${data.episode_generation_progress || 0}%)</span>`;
+            // 继续轮询子集生成进度
+            startEpisodeGenerationPolling();
+        } else if (episodeStatus === 'completed') {
+            elapsedEl.textContent = '✅ 版权数据和子集均已生成完成';
+        } else if (episodeStatus === 'failed') {
+            elapsedEl.innerHTML = '<span class="text-orange-600">⚠️ 版权数据已导入，但子集生成失败</span>';
+        } else {
+            elapsedEl.textContent = '';
+        }
     }
     
     // 显示错误详情
@@ -2034,6 +2089,44 @@ function exportErrors() {
     a.download = '导入错误数据.csv';
     a.click();
     URL.revokeObjectURL(url);
+}
+
+// 子集生成进度轮询
+let episodeGenerationPollInterval = null;
+
+function startEpisodeGenerationPolling() {
+    if (episodeGenerationPollInterval) {
+        clearInterval(episodeGenerationPollInterval);
+    }
+    
+    const elapsedEl = document.getElementById('complete-elapsed');
+    
+    episodeGenerationPollInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${API_BASE}/copyright/import/status/${importState.taskId}`);
+            const result = await response.json();
+            
+            if (result.code === 200) {
+                const data = result.data;
+                const status = data.episode_generation_status || '';
+                const progress = data.episode_generation_progress || 0;
+                
+                if (status === 'running' || status === 'pending') {
+                    elapsedEl.innerHTML = `<span class="text-blue-600">📦 子集正在后台生成中... (${progress}%)</span>`;
+                } else if (status === 'completed') {
+                    elapsedEl.innerHTML = '<span class="text-green-600">✅ 版权数据和子集均已生成完成</span>';
+                    clearInterval(episodeGenerationPollInterval);
+                    episodeGenerationPollInterval = null;
+                } else if (status === 'failed') {
+                    elapsedEl.innerHTML = '<span class="text-orange-600">⚠️ 版权数据已导入，但子集生成失败</span>';
+                    clearInterval(episodeGenerationPollInterval);
+                    episodeGenerationPollInterval = null;
+                }
+            }
+        } catch (error) {
+            console.error('轮询子集生成进度失败:', error);
+        }
+    }, 1000);  // 每秒检查一次
 }
 
 // 加载版权方数据（用于导入完成后刷新）

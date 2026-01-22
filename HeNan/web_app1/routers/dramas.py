@@ -20,6 +20,32 @@ from config import CUSTOMER_CONFIGS
 
 router = APIRouter(prefix="/api/dramas", tags=["剧集管理"])
 
+# 江苏新媒体表头配置与列宽（用于批量导出和表头格式化）
+JIANGSU_HEADERS = {
+    '剧头': {
+        'row1': ['vod_no', 'sId', 'appId', 'seriesName', 'volumnCount', 'description', 'seriesFlag', 'sortName', 'programType', 'releaseYear', 'language', 'rating', 'originalCountry', 'pgmCategory', 'pgmSedClass', 'director', 'actorDisplay'],
+        'row2': ['序号', 'ID', '应用Id', '剧头名称', '集数', '介绍', '剧头类型', '搜索关键字', '栏目类型', '上映日期', '语言', '评分', '来源国家', '分类', '二级分类', '导演', '演员'],
+    },
+    '子集': {
+        'row1': ['vod_info_no', 'vod_no', 'sId', 'pId', 'programName', 'volumnCount', 'type', 'fileURL', 'duration', 'bitRateType', 'mediaSpec'],
+        'row2': ['序号', '剧头序号', '剧头Id', 'ID', '子集名称', '集数', '类型', '文件地址', '节目时长', '比特率', '视音频参数'],
+    },
+    '图片': {
+        'row1': ['picture_no', 'vod_no', 'sId', 'picId', 'type', 'sequence', 'fileURL'],
+        'row2': ['序号', '剧头序号', '剧头Id', '图片Id', '类型', '排序', '文件地址'],
+    },
+}
+
+JIANGSU_COL_WIDTHS = {
+    'vod_no': 8, 'sId': 10, 'appId': 10, 'seriesName': 30, 'volumnCount': 10,
+    'description': 50, 'seriesFlag': 12, 'sortName': 20, 'programType': 15,
+    'releaseYear': 12, 'language': 10, 'rating': 8, 'originalCountry': 12,
+    'pgmCategory': 10, 'pgmSedClass': 20, 'director': 15, 'actorDisplay': 20,
+    'vod_info_no': 10, 'pId': 10, 'programName': 35, 'type': 8,
+    'fileURL': 60, 'duration': 12, 'bitRateType': 12, 'mediaSpec': 40,
+    'picture_no': 10, 'picId': 10, 'sequence': 8,
+}
+
 
 def _build_drama_display_dict(drama, customer_code):
     """根据客户配置构建剧头显示数据"""
@@ -359,6 +385,16 @@ def _build_picture_data(drama, customer_code):
     return pictures
 
 
+def _build_picture_data_fast(abbr):
+    """快速构建江苏新媒体的图片数据（直接使用拼音缩写，避免重复查询）"""
+    return [
+        {'picture_no': '', 'vod_no': '', 'sId': None, 'picId': None, 'type': 0, 'sequence': 1, 'fileURL': f"/img/{abbr}/0.jpg"},
+        {'picture_no': '', 'vod_no': '', 'sId': None, 'picId': None, 'type': 1, 'sequence': 2, 'fileURL': f"/img/{abbr}/1.jpg"},
+        {'picture_no': '', 'vod_no': '', 'sId': None, 'picId': None, 'type': 2, 'sequence': 3, 'fileURL': f"/img/{abbr}/2.jpg"},
+        {'picture_no': '', 'vod_no': '', 'sId': None, 'picId': None, 'type': 99, 'sequence': 4, 'fileURL': f"/img/{abbr}/99.jpg"},
+    ]
+
+
 def _format_excel_sheets(writer, customer_code):
     """格式化Excel表格 - 固定列宽，不换行，长文本截断显示"""
     from openpyxl.styles import Font, PatternFill
@@ -400,41 +436,9 @@ def _format_jiangsu_excel(writer):
         bottom=Side(style='thin')
     )
     header_fill = PatternFill(start_color='E0E0E0', end_color='E0E0E0', fill_type='solid')
-    
-    # 江苏剧头表头配置 - 2行表头
-    jiangsu_drama_headers = {
-        'row1': ['vod_no', 'sId', 'appId', 'seriesName', 'volumnCount', 'description', 'seriesFlag', 'sortName', 'programType', 'releaseYear', 'language', 'rating', 'originalCountry', 'pgmCategory', 'pgmSedClass', 'director', 'actorDisplay'],
-        'row2': ['序号', 'ID', '应用Id', '剧头名称', '集数', '介绍', '剧头类型', '搜索关键字', '栏目类型', '上映日期', '语言', '评分', '来源国家', '分类', '二级分类', '导演', '演员'],
-    }
-    
-    # 江苏子集表头配置 - 2行表头
-    jiangsu_episode_headers = {
-        'row1': ['vod_info_no', 'vod_no', 'sId', 'pId', 'programName', 'volumnCount', 'type', 'fileURL', 'duration', 'bitRateType', 'mediaSpec'],
-        'row2': ['序号', '剧头序号', '剧头Id', 'ID', '子集名称', '集数', '类型', '文件地址', '节目时长', '比特率', '视音频参数'],
-    }
-    
-    # 江苏图片表头配置 - 2行表头
-    jiangsu_picture_headers = {
-        'row1': ['picture_no', 'vod_no', 'sId', 'picId', 'type', 'sequence', 'fileURL'],
-        'row2': ['序号', '剧头序号', '剧头Id', '图片Id', '类型', '排序', '文件地址'],
-    }
-    
-    headers_config = {
-        '剧头': jiangsu_drama_headers,
-        '子集': jiangsu_episode_headers,
-        '图片': jiangsu_picture_headers
-    }
-    
-    # 列宽配置
-    col_widths = {
-        'vod_no': 8, 'sId': 10, 'appId': 10, 'seriesName': 30, 'volumnCount': 10,
-        'description': 50, 'seriesFlag': 12, 'sortName': 20, 'programType': 15,
-        'releaseYear': 12, 'language': 10, 'rating': 8, 'originalCountry': 12,
-        'pgmCategory': 10, 'pgmSedClass': 20, 'director': 15, 'actorDisplay': 20,
-        'vod_info_no': 10, 'pId': 10, 'programName': 35, 'type': 8,
-        'fileURL': 60, 'duration': 12, 'bitRateType': 12, 'mediaSpec': 40,
-        'picture_no': 10, 'picId': 10, 'sequence': 8,
-    }
+
+    headers_config = JIANGSU_HEADERS
+    col_widths = JIANGSU_COL_WIDTHS
     
     # 预创建对齐样式（复用对象，减少内存）
     header_alignment = Alignment(wrap_text=False, vertical='center', horizontal='center')
@@ -474,6 +478,41 @@ def _format_jiangsu_excel(writer):
             cell2.alignment = header_alignment
             cell2.fill = header_fill
             cell2.border = thin_border
+
+
+def _write_jiangsu_sheet_fast(writer, sheet_name, df, header_format):
+    """使用xlsxwriter快速写入江苏新媒体表（避免逐单元格样式操作）"""
+    headers = JIANGSU_HEADERS.get(sheet_name)
+    if headers is None:
+        return
+    # 确保列顺序与预期一致，缺失列自动补空
+    df_for_sheet = df.reindex(columns=headers['row1']) if df is not None else pd.DataFrame(columns=headers['row1'])
+    df_for_sheet.to_excel(writer, sheet_name=sheet_name, index=False, startrow=2, header=False)
+    worksheet = writer.sheets[sheet_name]
+    worksheet.write_row(0, 0, headers['row1'], header_format)
+    worksheet.write_row(1, 0, headers['row2'], header_format)
+    worksheet.freeze_panes(2, 0)
+    for col_idx, field_name in enumerate(headers['row1']):
+        worksheet.set_column(col_idx, col_idx, JIANGSU_COL_WIDTHS.get(field_name, 15))
+
+
+def _build_jiangsu_excel_fast(drama_df, episode_df, picture_df):
+    """构建江苏新媒体Excel（xlsxwriter写入，性能更好）"""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        header_format = workbook.add_format({
+            'bold': True,
+            'align': 'center',
+            'valign': 'vcenter',
+            'bg_color': '#E0E0E0',
+            'border': 1,
+        })
+        _write_jiangsu_sheet_fast(writer, '剧头', drama_df, header_format)
+        _write_jiangsu_sheet_fast(writer, '子集', episode_df, header_format)
+        _write_jiangsu_sheet_fast(writer, '图片', picture_df, header_format)
+    output.seek(0)
+    return output
 
 
 @router.get("/export/customer/{customer_code}")
@@ -715,8 +754,9 @@ async def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
                     
                     all_episodes.append(ep_data)
                 
-                # 图片数据
-                for pic in _build_picture_data(drama, customer_code):
+                # 图片数据 - 使用快速版本，直接使用预计算的拼音缩写
+                abbr = drama['_pinyin_abbr']
+                for pic in _build_picture_data_fast(abbr):
                     picture_sequence += 1
                     pic['picture_no'] = picture_sequence
                     pic['vod_no'] = drama_sequence
@@ -728,23 +768,135 @@ async def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
             picture_columns = [col['col'] for col in config.get('picture_columns', [])]
             picture_df = pd.DataFrame(all_pictures, columns=picture_columns)
         
-        # 生成Excel
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            drama_df.to_excel(writer, sheet_name='剧头', index=False)
-            episode_df.to_excel(writer, sheet_name='子集', index=False)
-            picture_df.to_excel(writer, sheet_name='图片', index=False)
-            
-            # 使用江苏新媒体特殊格式
-            _format_jiangsu_excel(writer)
-        
-        output.seek(0)
+        # 生成Excel（改用xlsxwriter，减少大数据量下的写入耗时）
+        output = _build_jiangsu_excel_fast(drama_df, episode_df, picture_df)
         
         # 生成文件名
         if len(dramas) == 1:
             filename = f"江苏新媒体_{dramas[0]['drama_name']}_注入表.xlsx"
         else:
             filename = f"江苏新媒体_批量导出_{len(dramas)}个剧集.xlsx"
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
+
+
+@router.post("/export/batch/xinjiang_telecom")
+async def export_xinjiang_batch(drama_names: list = Body(..., embed=True)):
+    """
+    批量导出新疆电信剧集
+    
+    参数：
+    - drama_names: 剧集名称列表，例如：["剧集1", "剧集2", "剧集3"]
+    
+    返回：Excel文件（包含剧头、子集两个sheet）
+    """
+    customer_code = 'xinjiang_telecom'
+    
+    if not drama_names or len(drama_names) == 0:
+        raise HTTPException(status_code=400, detail="请提供至少一个剧集名称")
+    
+    try:
+        with get_db() as conn:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            
+            # 构建查询条件：查找新疆电信客户的指定剧集
+            placeholders = ','.join(['%s'] * len(drama_names))
+            query = f"""
+                SELECT * FROM drama_main 
+                WHERE customer_code = %s AND drama_name IN ({placeholders})
+                ORDER BY drama_id
+            """
+            cursor.execute(query, (customer_code, *drama_names))
+            dramas = cursor.fetchall()
+            
+            if not dramas:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"未找到匹配的新疆电信剧集。请检查剧集名称是否正确。"
+                )
+            
+            # 检查是否有剧集未找到
+            found_names = {d['drama_name'] for d in dramas}
+            missing_names = set(drama_names) - found_names
+            if missing_names:
+                print(f"警告：以下剧集未找到: {', '.join(missing_names)}")
+            
+            config = CUSTOMER_CONFIGS[customer_code]
+            drama_columns = _get_column_names(customer_code, 'drama')
+            episode_columns = _get_column_names(customer_code, 'episode')
+            
+            # 批量查询所有子集（性能优化：一次查询替代N次查询）
+            drama_ids = [d['drama_id'] for d in dramas]
+            placeholders_episodes = ','.join(['%s'] * len(drama_ids))
+            cursor.execute(
+                f"SELECT * FROM drama_episode WHERE drama_id IN ({placeholders_episodes}) ORDER BY drama_id, episode_id",
+                drama_ids
+            )
+            all_episodes_raw = cursor.fetchall()
+            
+            # 预解析所有JSON（性能优化：避免重复解析）
+            for drama in dramas:
+                drama['_parsed_props'] = parse_json(drama)
+            
+            for episode in all_episodes_raw:
+                episode['_parsed_props'] = parse_json(episode)
+            
+            # 按drama_id分组子集
+            episodes_by_drama = {}
+            for episode in all_episodes_raw:
+                drama_id = episode['drama_id']
+                if drama_id not in episodes_by_drama:
+                    episodes_by_drama[drama_id] = []
+                episodes_by_drama[drama_id].append(episode)
+            
+            # 预获取配置（避免重复查询）
+            drama_col_configs = config.get('drama_columns', [])
+            episode_col_configs = config.get('episode_columns', [])
+            
+            # 构建剧头数据
+            drama_list = []
+            all_episodes = []
+            
+            for drama in dramas:
+                # 使用预获取的配置构建剧头数据
+                header_dict = _build_drama_display_dict_fast(drama, customer_code, drama_col_configs)
+                drama_list.append(header_dict)
+                
+                # 获取该剧集的子集（从已查询的数据中获取）
+                episodes = episodes_by_drama.get(drama['drama_id'], [])
+                
+                for episode in episodes:
+                    # 使用预获取的配置构建子集数据
+                    ep_data = _build_episode_display_dict_fast(episode, customer_code, episode_col_configs)
+                    all_episodes.append(ep_data)
+            
+            # 创建DataFrame
+            drama_df = pd.DataFrame(drama_list, columns=drama_columns)
+            episode_df = pd.DataFrame(all_episodes, columns=episode_columns)
+        
+        # 生成Excel
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            drama_df.to_excel(writer, sheet_name='剧头', index=False)
+            episode_df.to_excel(writer, sheet_name='子集', index=False)
+            _format_excel_sheets(writer, customer_code)
+        
+        output.seek(0)
+        
+        # 生成文件名
+        customer_name = config.get('name', '新疆电信')
+        if len(dramas) == 1:
+            filename = f"{customer_name}_{dramas[0]['drama_name']}_注入表.xlsx"
+        else:
+            filename = f"{customer_name}_批量导出_{len(dramas)}个剧集.xlsx"
         
         return StreamingResponse(
             output,

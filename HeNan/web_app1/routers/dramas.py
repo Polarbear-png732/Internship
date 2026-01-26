@@ -18,115 +18,25 @@ from database import get_db
 from utils import parse_json, get_pinyin_abbr, get_image_url
 from config import CUSTOMER_CONFIGS
 
+# 从服务层导入
+from services.drama_service import (
+    JIANGSU_HEADERS, JIANGSU_COL_WIDTHS,
+    build_drama_display_dict as _build_drama_display_dict,
+    build_drama_display_dict_fast as _build_drama_display_dict_fast,
+    build_episode_display_dict as _build_episode_display_dict,
+    build_episode_display_dict_fast as _build_episode_display_dict_fast,
+    get_column_names as _get_column_names,
+    build_picture_data as _build_picture_data,
+    build_picture_data_fast as _build_picture_data_fast,
+    preprocess_dramas, preprocess_episodes, group_episodes_by_drama
+)
+from services.export_service import ExcelExportService
+
 router = APIRouter(prefix="/api/dramas", tags=["剧集管理"])
-
-# 江苏新媒体表头配置与列宽（用于批量导出和表头格式化）
-JIANGSU_HEADERS = {
-    '剧头': {
-        'row1': ['vod_no', 'sId', 'appId', 'seriesName', 'volumnCount', 'description', 'seriesFlag', 'sortName', 'programType', 'releaseYear', 'language', 'rating', 'originalCountry', 'pgmCategory', 'pgmSedClass', 'director', 'actorDisplay'],
-        'row2': ['序号', 'ID', '应用Id', '剧头名称', '集数', '介绍', '剧头类型', '搜索关键字', '栏目类型', '上映日期', '语言', '评分', '来源国家', '分类', '二级分类', '导演', '演员'],
-    },
-    '子集': {
-        'row1': ['vod_info_no', 'vod_no', 'sId', 'pId', 'programName', 'volumnCount', 'type', 'fileURL', 'duration', 'bitRateType', 'mediaSpec'],
-        'row2': ['序号', '剧头序号', '剧头Id', 'ID', '子集名称', '集数', '类型', '文件地址', '节目时长', '比特率', '视音频参数'],
-    },
-    '图片': {
-        'row1': ['picture_no', 'vod_no', 'sId', 'picId', 'type', 'sequence', 'fileURL'],
-        'row2': ['序号', '剧头序号', '剧头Id', '图片Id', '类型', '排序', '文件地址'],
-    },
-}
-
-JIANGSU_COL_WIDTHS = {
-    'vod_no': 8, 'sId': 10, 'appId': 10, 'seriesName': 30, 'volumnCount': 10,
-    'description': 50, 'seriesFlag': 12, 'sortName': 20, 'programType': 15,
-    'releaseYear': 12, 'language': 10, 'rating': 8, 'originalCountry': 12,
-    'pgmCategory': 10, 'pgmSedClass': 20, 'director': 15, 'actorDisplay': 20,
-    'vod_info_no': 10, 'pId': 10, 'programName': 35, 'type': 8,
-    'fileURL': 60, 'duration': 12, 'bitRateType': 12, 'mediaSpec': 40,
-    'picture_no': 10, 'picId': 10, 'sequence': 8,
-}
-
-
-def _build_drama_display_dict(drama, customer_code):
-    """根据客户配置构建剧头显示数据"""
-    config = CUSTOMER_CONFIGS.get(customer_code, CUSTOMER_CONFIGS.get('henan_mobile', {}))
-    col_configs = config.get('drama_columns', [])
-    return _build_drama_display_dict_fast(drama, customer_code, col_configs)
-
-
-def _build_drama_display_dict_fast(drama, customer_code, col_configs):
-    """根据客户配置构建剧头显示数据（快速版本，避免重复获取配置）"""
-    # 使用预解析的props（如果存在），否则现场解析
-    props = drama.get('_parsed_props') if '_parsed_props' in drama else parse_json(drama)
-    
-    result = {}
-    for col_config in col_configs:
-        col_name = col_config['col']
-        
-        if col_config.get('field') == 'drama_id':
-            result[col_name] = drama.get('drama_id', '')
-        elif col_config.get('field') == 'drama_name':
-            result[col_name] = drama.get('drama_name', '')
-        elif 'value' in col_config:
-            result[col_name] = col_config['value']
-        elif col_config.get('type') == 'image':
-            # 图片URL - 使用预计算的拼音缩写
-            abbr = drama.get('_pinyin_abbr') if '_pinyin_abbr' in drama else get_pinyin_abbr(drama.get('drama_name', ''))
-            image_type = col_config.get('image_type', 'vertical')
-            result[col_name] = get_image_url(abbr, image_type, customer_code)
-        else:
-            # 从 dynamic_properties 中获取
-            # 只有配置了 default 才使用默认值，否则保持空
-            value = props.get(col_name)
-            if (value is None or value == '') and 'default' in col_config:
-                value = col_config['default']
-            result[col_name] = value if value is not None else ''
-    
-    return result
-
-
-def _build_episode_display_dict(episode, customer_code, drama_name=''):
-    """根据客户配置构建子集显示数据"""
-    config = CUSTOMER_CONFIGS.get(customer_code, CUSTOMER_CONFIGS.get('henan_mobile', {}))
-    col_configs = config.get('episode_columns', [])
-    return _build_episode_display_dict_fast(episode, customer_code, col_configs)
-
-
-def _build_episode_display_dict_fast(episode, customer_code, col_configs):
-    """根据客户配置构建子集显示数据（快速版本，避免重复获取配置）"""
-    # 使用预解析的props（如果存在），否则现场解析
-    props = episode.get('_parsed_props') if '_parsed_props' in episode else parse_json(episode)
-    
-    result = {}
-    for col_config in col_configs:
-        col_name = col_config['col']
-        
-        if col_config.get('field') == 'episode_id':
-            result[col_name] = episode.get('episode_id', '')
-        elif col_config.get('field') == 'episode_name':
-            result[col_name] = episode.get('episode_name', '')
-        elif 'value' in col_config:
-            result[col_name] = col_config['value']
-        else:
-            # 从 dynamic_properties 中获取
-            # 只有配置了 default 才使用默认值，否则保持空
-            value = props.get(col_name)
-            if (value is None or value == '') and 'default' in col_config:
-                value = col_config['default']
-            result[col_name] = value if value is not None else ''
-    
-    return result
-
-
-def _get_column_names(customer_code, table_type='drama'):
-    """获取客户配置的列名列表"""
-    config = CUSTOMER_CONFIGS.get(customer_code, CUSTOMER_CONFIGS.get('henan_mobile', {}))
-    columns_key = 'drama_columns' if table_type == 'drama' else 'episode_columns'
-    return [col['col'] for col in config.get(columns_key, [])]
 
 
 @router.get("")
-async def get_dramas(
+def get_dramas(
     customer_code: Optional[str] = Query(None, description="客户代码"),
     keyword: Optional[str] = Query(None, description="搜索关键词"),
     page: int = Query(1, ge=1, description="页码"),
@@ -172,7 +82,7 @@ async def get_dramas(
 
 
 @router.get("/by-name")
-async def get_drama_by_name(
+def get_drama_by_name(
     name: str = Query(..., description="剧集名称"),
     customer_code: str = Query('henan_mobile', description="客户代码")
 ):
@@ -229,7 +139,7 @@ async def get_drama_by_name(
 
 
 @router.get("/columns/{customer_code}")
-async def get_customer_columns(customer_code: str):
+def get_customer_columns(customer_code: str):
     """获取指定客户的列配置"""
     if customer_code not in CUSTOMER_CONFIGS:
         raise HTTPException(status_code=404, detail=f"未知的客户代码: {customer_code}")
@@ -248,7 +158,7 @@ async def get_customer_columns(customer_code: str):
 
 
 @router.get("/{drama_id}")
-async def get_drama_detail(drama_id: int):
+def get_drama_detail(drama_id: int):
     """获取剧集详细信息"""
     try:
         with get_db() as conn:
@@ -270,7 +180,7 @@ async def get_drama_detail(drama_id: int):
 
 
 @router.get("/{drama_id}/export")
-async def export_drama_to_excel(drama_id: int):
+def export_drama_to_excel(drama_id: int):
     """导出单个剧集数据为Excel文件（按该剧集所属客户的格式）"""
     try:
         with get_db() as conn:
@@ -341,9 +251,9 @@ async def export_drama_to_excel(drama_id: int):
             
             # 江苏新媒体使用特殊的两行表头格式
             if customer_code == 'jiangsu_newmedia':
-                _format_jiangsu_excel(writer)
+                ExcelExportService.format_jiangsu_excel(writer)
             else:
-                _format_excel_sheets(writer, customer_code)
+                ExcelExportService.format_excel_sheets(writer, customer_code)
         
         output.seek(0)
         customer_name = config.get('name', '')
@@ -358,166 +268,9 @@ async def export_drama_to_excel(drama_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _build_picture_data(drama, customer_code):
-    """构建江苏新媒体的图片数据 - 每个剧头4张图片(type: 0,1,2,99)"""
-    # 使用预计算的拼音缩写（如果存在），否则现场计算
-    abbr = drama.get('_pinyin_abbr') if '_pinyin_abbr' in drama else get_pinyin_abbr(drama['drama_name'])
-    
-    # 4种图片类型: 0, 1, 2, 99
-    picture_types = [
-        {'type': 0, 'sequence': 1},
-        {'type': 1, 'sequence': 2},
-        {'type': 2, 'sequence': 3},
-        {'type': 99, 'sequence': 4},
-    ]
-    
-    pictures = []
-    for pt in picture_types:
-        pictures.append({
-            'picture_no': '',  # 序号，导出时会填充
-            'vod_no': '',      # 剧头序号，导出时会填充
-            'sId': None,       # 剧头Id，留空
-            'picId': None,     # 图片Id，留空
-            'type': pt['type'],
-            'sequence': pt['sequence'],
-            'fileURL': f"/img/{abbr}/{pt['type']}.jpg"
-        })
-    return pictures
-
-
-def _build_picture_data_fast(abbr):
-    """快速构建江苏新媒体的图片数据（直接使用拼音缩写，避免重复查询）"""
-    return [
-        {'picture_no': '', 'vod_no': '', 'sId': None, 'picId': None, 'type': 0, 'sequence': 1, 'fileURL': f"/img/{abbr}/0.jpg"},
-        {'picture_no': '', 'vod_no': '', 'sId': None, 'picId': None, 'type': 1, 'sequence': 2, 'fileURL': f"/img/{abbr}/1.jpg"},
-        {'picture_no': '', 'vod_no': '', 'sId': None, 'picId': None, 'type': 2, 'sequence': 3, 'fileURL': f"/img/{abbr}/2.jpg"},
-        {'picture_no': '', 'vod_no': '', 'sId': None, 'picId': None, 'type': 99, 'sequence': 4, 'fileURL': f"/img/{abbr}/99.jpg"},
-    ]
-
-
-def _format_excel_sheets(writer, customer_code):
-    """格式化Excel表格 - 固定列宽，不换行，长文本截断显示"""
-    from openpyxl.styles import Font, PatternFill
-    
-    workbook = writer.book
-    for sheet_name in workbook.sheetnames:
-        sheet = workbook[sheet_name]
-        sheet.row_dimensions[1].height = 20
-        
-        for col_idx in range(1, sheet.max_column + 1):
-            col_letter = get_column_letter(col_idx)
-            header_cell = sheet.cell(row=1, column=col_idx)
-            header_name = str(header_cell.value) if header_cell.value else ''
-            
-            # 根据表头长度计算列宽，限制最大30
-            header_width = sum(2 if ord(c) > 127 else 1 for c in header_name)
-            col_width = min(header_width + 4, 30)
-            sheet.column_dimensions[col_letter].width = col_width
-            
-            # 设置所有单元格：不换行，垂直居中
-            for row_idx in range(1, sheet.max_row + 1):
-                cell = sheet.cell(row=row_idx, column=col_idx)
-                cell.alignment = Alignment(wrap_text=False, vertical='center')
-
-
-def _format_jiangsu_excel(writer):
-    """为江苏新媒体格式化Excel，按照江苏新媒体注入表模版.xlsx的格式
-    格式：第1行英文字段名，第2行中文说明，第3行开始是数据
-    性能优化：减少单元格样式设置次数
-    """
-    from openpyxl.styles import Font, PatternFill, Border, Side
-    from openpyxl.utils import get_column_letter
-    
-    workbook = writer.book
-    thin_border = Border(
-        left=Side(style='thin'),
-        right=Side(style='thin'),
-        top=Side(style='thin'),
-        bottom=Side(style='thin')
-    )
-    header_fill = PatternFill(start_color='E0E0E0', end_color='E0E0E0', fill_type='solid')
-
-    headers_config = JIANGSU_HEADERS
-    col_widths = JIANGSU_COL_WIDTHS
-    
-    # 预创建对齐样式（复用对象，减少内存）
-    header_alignment = Alignment(wrap_text=False, vertical='center', horizontal='center')
-    data_alignment = Alignment(wrap_text=False, vertical='center')
-    
-    for sheet_name in workbook.sheetnames:
-        if sheet_name not in headers_config:
-            continue
-            
-        sheet = workbook[sheet_name]
-        config = headers_config[sheet_name]
-        
-        # 插入一行作为第二行（中文说明行）
-        sheet.insert_rows(2)
-        
-        # 设置行高
-        sheet.row_dimensions[1].height = 20
-        sheet.row_dimensions[2].height = 20
-        
-        # 处理表头和列宽（只处理表头行，不处理数据行）
-        for col_idx, field_name in enumerate(config['row1'], 1):
-            col_letter = get_column_letter(col_idx)
-            
-            # 设置列宽
-            sheet.column_dimensions[col_letter].width = col_widths.get(field_name, 15)
-            
-            # 第1行：英文字段名
-            cell1 = sheet.cell(row=1, column=col_idx)
-            cell1.value = field_name
-            cell1.alignment = header_alignment
-            cell1.fill = header_fill
-            cell1.border = thin_border
-            
-            # 第2行：中文说明
-            cell2 = sheet.cell(row=2, column=col_idx)
-            cell2.value = config['row2'][col_idx - 1]
-            cell2.alignment = header_alignment
-            cell2.fill = header_fill
-            cell2.border = thin_border
-
-
-def _write_jiangsu_sheet_fast(writer, sheet_name, df, header_format):
-    """使用xlsxwriter快速写入江苏新媒体表（避免逐单元格样式操作）"""
-    headers = JIANGSU_HEADERS.get(sheet_name)
-    if headers is None:
-        return
-    # 确保列顺序与预期一致，缺失列自动补空
-    df_for_sheet = df.reindex(columns=headers['row1']) if df is not None else pd.DataFrame(columns=headers['row1'])
-    df_for_sheet.to_excel(writer, sheet_name=sheet_name, index=False, startrow=2, header=False)
-    worksheet = writer.sheets[sheet_name]
-    worksheet.write_row(0, 0, headers['row1'], header_format)
-    worksheet.write_row(1, 0, headers['row2'], header_format)
-    worksheet.freeze_panes(2, 0)
-    for col_idx, field_name in enumerate(headers['row1']):
-        worksheet.set_column(col_idx, col_idx, JIANGSU_COL_WIDTHS.get(field_name, 15))
-
-
-def _build_jiangsu_excel_fast(drama_df, episode_df, picture_df):
-    """构建江苏新媒体Excel（xlsxwriter写入，性能更好）"""
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        workbook = writer.book
-        header_format = workbook.add_format({
-            'bold': True,
-            'align': 'center',
-            'valign': 'vcenter',
-            'bg_color': '#E0E0E0',
-            'border': 1,
-        })
-        _write_jiangsu_sheet_fast(writer, '剧头', drama_df, header_format)
-        _write_jiangsu_sheet_fast(writer, '子集', episode_df, header_format)
-        _write_jiangsu_sheet_fast(writer, '图片', picture_df, header_format)
-    output.seek(0)
-    return output
-
-
 @router.get("/export/customer/{customer_code}")
-async def export_customer_dramas(customer_code: str):
-    """导出指定客户的所有剧集数据为Excel文件"""
+def export_customer_dramas(customer_code: str):
+    """导出指定客户的所有剧集数据为Excel文件（性能优化版：批量查询子集）"""
     if customer_code not in CUSTOMER_CONFIGS:
         raise HTTPException(status_code=404, detail=f"未知的客户代码: {customer_code}")
     
@@ -538,6 +291,36 @@ async def export_customer_dramas(customer_code: str):
             config = CUSTOMER_CONFIGS[customer_code]
             drama_columns = _get_column_names(customer_code, 'drama')
             episode_columns = _get_column_names(customer_code, 'episode')
+            drama_col_configs = config.get('drama_columns', [])
+            episode_col_configs = config.get('episode_columns', [])
+            
+            # 【性能优化】批量查询所有子集，避免 N+1 查询
+            drama_ids = [d['drama_id'] for d in dramas]
+            if drama_ids:
+                placeholders = ','.join(['%s'] * len(drama_ids))
+                cursor.execute(
+                    f"SELECT * FROM drama_episode WHERE drama_id IN ({placeholders}) ORDER BY drama_id, episode_id",
+                    drama_ids
+                )
+                all_episodes_raw = cursor.fetchall()
+            else:
+                all_episodes_raw = []
+            
+            # 【性能优化】预解析所有 JSON
+            for drama in dramas:
+                drama['_parsed_props'] = parse_json(drama)
+                drama['_pinyin_abbr'] = get_pinyin_abbr(drama.get('drama_name', ''))
+            
+            for episode in all_episodes_raw:
+                episode['_parsed_props'] = parse_json(episode)
+            
+            # 【性能优化】按 drama_id 分组子集
+            episodes_by_drama = {}
+            for episode in all_episodes_raw:
+                drama_id = episode['drama_id']
+                if drama_id not in episodes_by_drama:
+                    episodes_by_drama[drama_id] = []
+                episodes_by_drama[drama_id].append(episode)
             
             # 构建剧头数据
             drama_list = []
@@ -550,7 +333,7 @@ async def export_customer_dramas(customer_code: str):
             
             for drama in dramas:
                 drama_sequence += 1
-                header_dict = _build_drama_display_dict(drama, customer_code)
+                header_dict = _build_drama_display_dict_fast(drama, customer_code, drama_col_configs)
                 
                 # 处理序号字段
                 first_col = drama_columns[0] if drama_columns else None
@@ -565,16 +348,12 @@ async def export_customer_dramas(customer_code: str):
                 
                 drama_list.append(header_dict)
                 
-                # 获取子集
-                cursor.execute(
-                    "SELECT * FROM drama_episode WHERE drama_id = %s ORDER BY episode_id",
-                    (drama['drama_id'],)
-                )
-                episodes = cursor.fetchall()
+                # 【性能优化】从预查询的数据中获取子集
+                episodes = episodes_by_drama.get(drama['drama_id'], [])
                 
                 for episode in episodes:
                     episode_sequence += 1
-                    ep_data = _build_episode_display_dict(episode, customer_code)
+                    ep_data = _build_episode_display_dict_fast(episode, customer_code, episode_col_configs)
                     
                     # 处理序号字段
                     first_ep_col = episode_columns[0] if episode_columns else None
@@ -599,7 +378,8 @@ async def export_customer_dramas(customer_code: str):
                 
                 # 江苏新媒体的图片数据
                 if customer_code == 'jiangsu_newmedia':
-                    for pic in _build_picture_data(drama, customer_code):
+                    abbr = drama.get('_pinyin_abbr', get_pinyin_abbr(drama['drama_name']))
+                    for pic in _build_picture_data_fast(abbr):
                         picture_sequence += 1
                         pic['picture_no'] = picture_sequence
                         pic['vod_no'] = drama_sequence
@@ -621,9 +401,9 @@ async def export_customer_dramas(customer_code: str):
             
             # 江苏新媒体使用特殊的两行表头格式
             if customer_code == 'jiangsu_newmedia':
-                _format_jiangsu_excel(writer)
+                ExcelExportService.format_jiangsu_excel(writer)
             else:
-                _format_excel_sheets(writer, customer_code)
+                ExcelExportService.format_excel_sheets(writer, customer_code)
         
         output.seek(0)
         customer_name = config.get('name', '')
@@ -639,7 +419,7 @@ async def export_customer_dramas(customer_code: str):
 
 
 @router.post("/export/batch/jiangsu_newmedia")
-async def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
+def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
     """
     批量导出江苏新媒体剧集
     
@@ -769,7 +549,7 @@ async def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
             picture_df = pd.DataFrame(all_pictures, columns=picture_columns)
         
         # 生成Excel（改用xlsxwriter，减少大数据量下的写入耗时）
-        output = _build_jiangsu_excel_fast(drama_df, episode_df, picture_df)
+        output = ExcelExportService.build_jiangsu_excel_fast(drama_df, episode_df, picture_df)
         
         # 生成文件名
         if len(dramas) == 1:
@@ -789,7 +569,7 @@ async def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
 
 
 @router.post("/export/batch/xinjiang_telecom")
-async def export_xinjiang_batch(drama_names: list = Body(..., embed=True)):
+def export_xinjiang_batch(drama_names: list = Body(..., embed=True)):
     """
     批量导出新疆电信剧集
     
@@ -887,7 +667,7 @@ async def export_xinjiang_batch(drama_names: list = Body(..., embed=True)):
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             drama_df.to_excel(writer, sheet_name='剧头', index=False)
             episode_df.to_excel(writer, sheet_name='子集', index=False)
-            _format_excel_sheets(writer, customer_code)
+            ExcelExportService.format_excel_sheets(writer, customer_code)
         
         output.seek(0)
         
@@ -910,7 +690,7 @@ async def export_xinjiang_batch(drama_names: list = Body(..., embed=True)):
 
 
 @router.delete("/{drama_id}")
-async def delete_drama(drama_id: int):
+def delete_drama(drama_id: int):
     """删除剧头"""
     try:
         with get_db() as conn:
@@ -928,7 +708,7 @@ async def delete_drama(drama_id: int):
 
 
 @router.post("/extract-names-from-excel")
-async def extract_drama_names_from_excel(file: bytes = Body(...)):
+def extract_drama_names_from_excel(file: bytes = Body(...)):
     """
     从Excel文件中提取剧集名称列
     用于江苏新媒体批量搜索功能
@@ -982,7 +762,7 @@ async def extract_drama_names_from_excel(file: bytes = Body(...)):
 
 
 @router.post("/import-and-query-excel")
-async def import_and_query_excel(
+def import_and_query_excel(
     file: bytes = Body(...),
     customer_code: str = Query(...)
 ):
@@ -1101,7 +881,7 @@ async def import_and_query_excel(
 
 
 @router.post("/batch-query")
-async def batch_query_dramas(
+def batch_query_dramas(
     drama_names: List[str] = Body(..., embed=True),
     customer_code: str = Body(...)
 ):

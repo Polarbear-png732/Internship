@@ -27,7 +27,7 @@ def _build_episode_response(episode):
 
 
 @router.get("/{drama_id}/episodes")
-async def get_drama_episodes(drama_id: int):
+def get_drama_episodes(drama_id: int):
     """获取剧集的子集列表"""
     try:
         with get_db() as conn:
@@ -40,7 +40,7 @@ async def get_drama_episodes(drama_id: int):
 
 
 @router.post("/{drama_id}/episodes")
-async def create_episode(drama_id: int, episode_data: Dict[str, Any] = Body(...)):
+def create_episode(drama_id: int, episode_data: Dict[str, Any] = Body(...)):
     """创建子集"""
     if '节目名称' not in episode_data or not episode_data['节目名称']:
         raise HTTPException(status_code=400, detail="节目名称不能为空")
@@ -68,7 +68,7 @@ async def create_episode(drama_id: int, episode_data: Dict[str, Any] = Body(...)
 
 
 @router.put("/{drama_id}/episodes/{episode_id}")
-async def update_episode(drama_id: int, episode_id: int, episode_data: Dict[str, Any] = Body(...)):
+def update_episode(drama_id: int, episode_id: int, episode_data: Dict[str, Any] = Body(...)):
     """更新子集"""
     try:
         with get_db() as conn:
@@ -100,7 +100,7 @@ async def update_episode(drama_id: int, episode_id: int, episode_data: Dict[str,
 
 
 @router.delete("/{drama_id}/episodes/{episode_id}")
-async def delete_episode(drama_id: int, episode_id: int):
+def delete_episode(drama_id: int, episode_id: int):
     """删除子集"""
     try:
         with get_db() as conn:

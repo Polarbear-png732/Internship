@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/customers", tags=["客户管理"])
 
 
 @router.get("")
-async def get_customers():
+def get_customers():
     """获取客户列表（从配置读取）"""
     try:
         with get_db() as conn:

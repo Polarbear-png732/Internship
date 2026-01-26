@@ -1027,6 +1027,88 @@ def downgrade():
 
 ---
 
+## 已实施优化
+
+> 更新日期：2025年1月
+
+以下优化已经实施完成：
+
+### ✅ 性能优化
+
+#### 1. N+1 查询修复 - export_customer_dramas
+
+**问题**：批量导出时，每个剧集都单独查询子集，导致 N+1 查询问题。
+
+**修复**：改为批量查询所有子集，然后在内存中按 drama_id 分组。
+
+```python
+# 修复前（N+1查询）
+for drama in dramas:
+    cursor.execute("SELECT * FROM drama_episode WHERE drama_id = %s", (drama['drama_id'],))
+    episodes = cursor.fetchall()
+    # 处理...
+
+# 修复后（批量查询）
+drama_ids = [d['drama_id'] for d in dramas]
+placeholders = ','.join(['%s'] * len(drama_ids))
+cursor.execute(f"""
+    SELECT * FROM drama_episode 
+    WHERE drama_id IN ({placeholders}) 
+    ORDER BY drama_id, episode_id
+""", drama_ids)
+all_episodes = cursor.fetchall()
+# 按 drama_id 分组
+episodes_by_drama = {}
+for ep in all_episodes:
+    episodes_by_drama.setdefault(ep['drama_id'], []).append(ep)
+```
+
+**效果**：从 N+1 次查询减少到 2 次查询，显著提升批量导出性能。
+
+### ✅ 架构优化
+
+#### 2. 服务层抽象
+
+创建了独立的服务层模块，将业务逻辑从路由层分离：
+
+| 文件 | 职责 |
+|------|------|
+| `services/drama_service.py` | 剧集查询服务、数据转换辅助函数 |
+| `services/export_service.py` | Excel 导出服务、格式化功能 |
+| `services/import_service.py` | Excel 导入服务（已存在） |
+
+**主要组件**：
+
+- `DramaQueryService` - 剧集数据查询服务类
+- `ExcelExportService` - Excel 导出服务类
+- 数据转换辅助函数：`build_drama_display_dict`, `build_episode_display_dict` 等
+
+#### 3. 路由文件瘦身
+
+`dramas.py` 文件从 **1221 行** 减少到 **973 行**（减少约 20%），移除了重复的辅助函数，改为从服务层导入。
+
+### ✅ 数据库优化
+
+#### 4. 索引建议
+
+创建了 `sql/add_performance_indexes.sql` 文件，包含以下索引建议：
+
+```sql
+-- drama_main 表
+CREATE INDEX idx_drama_name ON drama_main(drama_name(100));
+CREATE INDEX idx_created_at ON drama_main(created_at DESC);
+CREATE INDEX idx_customer_created ON drama_main(customer_code, created_at DESC);
+
+-- drama_episode 表
+CREATE INDEX idx_drama_episode_order ON drama_episode(drama_id, episode_id);
+
+-- copyright_content 表
+CREATE INDEX idx_copyright_updated ON copyright_content(updated_at DESC);
+CREATE INDEX idx_category_level1 ON copyright_content(category_level1);
+```
+
+---
+
 ## 总结
 
 该项目整体实现了核心业务功能，代码质量较好，但存在以下主要问题：

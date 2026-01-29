@@ -1,0 +1,35 @@
+# 忽略所有内容
+/*
+
+# 只保留以下文件夹
+!/web_app1/
+!/sql/
+!/scripts/
+
+# web_app1 中需要忽略的内容
+web_app1/__pycache__/
+web_app1/**/__pycache__/
+web_app1/temp/
+web_app1/*.pyc
+
+# Python 通用忽略
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db

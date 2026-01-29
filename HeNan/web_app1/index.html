@@ -713,6 +713,31 @@
             <div class="flex-1 overflow-y-auto p-6">
                 <!-- 步骤1: 上传文件 -->
                 <div id="import-step-upload" class="import-step">
+                    <!-- 下载模板提示区域 -->
+                    <div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                    <polyline points="7 10 12 15 17 10"/>
+                                    <line x1="12" x2="12" y1="15" y2="3"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-medium text-blue-700">没有模板？点击右侧按钮下载标准模板</p>
+                                <p class="text-xs text-blue-600">模板包含所有数据列，填写后可直接导入</p>
+                            </div>
+                        </div>
+                        <button onclick="downloadImportTemplate()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium shadow-md shadow-blue-600/20 flex items-center gap-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" x2="12" y1="15" y2="3"/>
+                            </svg>
+                            下载模板
+                        </button>
+                    </div>
+                    
                     <div id="drop-zone" class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-purple-400 transition-colors cursor-pointer"
                          ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" onclick="document.getElementById('import-file-input').click()">
                         <input type="file" id="import-file-input" accept=".xlsx,.xls" class="hidden" onchange="handleFileSelect(event)">

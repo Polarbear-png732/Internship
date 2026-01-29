@@ -99,6 +99,91 @@ def get_copyright_list(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/template")
+def download_import_template():
+    """下载版权方数据导入模板（只有表头的Excel文件）"""
+    try:
+        # 使用导出的列名顺序创建空的DataFrame，只有表头
+        columns = list(COPYRIGHT_EXPORT_COLUMNS.values())
+        
+        df = pd.DataFrame(columns=columns)
+        
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='版权方数据模板', index=False)
+            
+            workbook = writer.book
+            worksheet = writer.sheets['版权方数据模板']
+            
+            # 设置列宽
+            col_widths = {
+                '上游版权方': 15, 
+                '介质名称': 25, 
+                '一级分类': 10, 
+                '二级分类': 10, 
+                '一级分类-河南标准': 15, 
+                '二级分类-河南标准': 15, 
+                '集数': 8, 
+                '单集时长（分）': 12, 
+                '总时长（分）': 12, 
+                '出品年代': 10, 
+                '首播日期': 12,
+                '授权区域（全国/单独沟通）': 20, 
+                '授权平台（IPTV、OTT、小屏、待沟通）': 30, 
+                '合作方式（采买/分成）': 18, 
+                '制作地区': 12,
+                '语言': 10, 
+                '语言-河南标准': 15, 
+                '国别': 10,
+                '导演': 15, 
+                '编剧': 15, 
+                '主演\\嘉宾\\主持人': 20, 
+                '作者': 15,
+                '推荐语/一句话介绍': 30, 
+                '简介': 40, 
+                '关键字': 15, 
+                '标清\\高清\\4K\\3D\\杜比': 15, 
+                '发行许可编号\\备案号等': 20, 
+                '行业内相关网站的评级、评分（骨朵\\艺恩\\猫眼\\豆瓣\\时光网\\百度\\其他主流视频网站等评分': 35,
+                '独家\\非独': 10, 
+                '版权开始时间': 12, 
+                '版权结束时间': 12,
+                '二级分类-山东': 15,
+            }
+            
+            # 应用列宽
+            for i, col_name in enumerate(columns):
+                width = col_widths.get(col_name, 12)
+                worksheet.set_column(i, i, width)
+            
+            # 设置表头格式
+            header_format = workbook.add_format({
+                'bold': True,
+                'bg_color': '#E0E7FF',
+                'border': 1,
+                'text_wrap': True,
+                'valign': 'vcenter',
+                'align': 'center'
+            })
+            
+            for col_num, value in enumerate(columns):
+                worksheet.write(0, col_num, value, header_format)
+            
+            # 设置首行高度
+            worksheet.set_row(0, 30)
+        
+        output.seek(0)
+        filename_encoded = quote('版权方数据导入模板.xlsx')
+        
+        return StreamingResponse(
+            output,
+            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            headers={'Content-Disposition': f'attachment; filename*=UTF-8\'\'{filename_encoded}'}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"生成模板失败: {str(e)}")
+
+
 @router.get("/export")
 def export_copyright_to_excel():
     """导出所有版权方数据为Excel文件（高性能版本）"""

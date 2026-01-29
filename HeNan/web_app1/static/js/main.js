@@ -1645,6 +1645,31 @@ let importState = {
     isMinimized: false   // 是否最小化
 };
 
+// 下载版权方数据导入模板
+async function downloadImportTemplate() {
+    try {
+        const response = await fetch(`${API_BASE}/copyright/template`);
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '版权方数据导入模板.xlsx';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            showSuccess('模板下载成功！请填写数据后导入');
+        } else {
+            const result = await response.json();
+            showError('下载模板失败：' + (result.detail || '未知错误'));
+        }
+    } catch (error) {
+        showError('下载模板失败：' + error.message);
+    }
+}
+
 // 打开导入模态框
 function openImportModal() {
     // 重置状态

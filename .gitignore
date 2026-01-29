@@ -46,3 +46,17 @@ dist/
 build/
 *.egg-info/
 
+
+# ==================== HeNan 项目专用 ====================
+# 只保留以下文件夹
+HeNan/*
+!HeNan/web_app1/
+!HeNan/sql/
+!HeNan/scripts/
+!HeNan/.gitignore
+
+# HeNan/web_app1 中需要忽略的内容
+HeNan/web_app1/__pycache__/
+HeNan/web_app1/**/__pycache__/
+HeNan/web_app1/temp/
+HeNan/web_app1/*.pyc

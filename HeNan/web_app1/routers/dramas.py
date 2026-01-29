@@ -121,6 +121,9 @@ def get_drama_by_name(
             drama_columns = _get_column_names(customer_code, 'drama')
             episode_columns = _get_column_names(customer_code, 'episode')
             
+            # 在header中添加数据库原始ID，供导出功能使用
+            header_dict['_db_drama_id'] = drama['drama_id']
+            
             return {
                 "code": 200, "message": "success",
                 "data": {
@@ -129,7 +132,8 @@ def get_drama_by_name(
                     "drama_columns": drama_columns,
                     "episode_columns": episode_columns,
                     "customer_code": customer_code,
-                    "customer_name": CUSTOMER_CONFIGS.get(customer_code, {}).get('name', '')
+                    "customer_name": CUSTOMER_CONFIGS.get(customer_code, {}).get('name', ''),
+                    "drama_id": drama['drama_id']  # 添加数据库原始ID
                 }
             }
     except HTTPException:
@@ -218,7 +222,7 @@ def export_drama_to_excel(drama_id: int):
             episode_columns = _get_column_names(customer_code, 'episode')
             episode_list = []
             for i, episode in enumerate(episodes, 1):
-                ep_data = _build_episode_display_dict(episode, customer_code)
+                ep_data = _build_episode_display_dict(episode, customer_code, drama_name)
                 
                 # 江苏新媒体：设置序号，vod_no关联剧头序号，sId和pId留空
                 if customer_code == 'jiangsu_newmedia':
@@ -350,10 +354,11 @@ def export_customer_dramas(customer_code: str):
                 
                 # 【性能优化】从预查询的数据中获取子集
                 episodes = episodes_by_drama.get(drama['drama_id'], [])
+                drama_name = drama.get('drama_name', '')
                 
                 for episode in episodes:
                     episode_sequence += 1
-                    ep_data = _build_episode_display_dict_fast(episode, customer_code, episode_col_configs)
+                    ep_data = _build_episode_display_dict_fast(episode, customer_code, episode_col_configs, drama_name)
                     
                     # 处理序号字段
                     first_ep_col = episode_columns[0] if episode_columns else None
@@ -520,11 +525,12 @@ def export_jiangsu_batch(drama_names: list = Body(..., embed=True)):
                 
                 # 获取该剧集的子集（从已查询的数据中获取）
                 episodes = episodes_by_drama.get(drama['drama_id'], [])
+                drama_name = drama.get('drama_name', '')
                 
                 for episode in episodes:
                     episode_sequence += 1
                     # 使用预获取的配置构建子集数据
-                    ep_data = _build_episode_display_dict_fast(episode, customer_code, episode_col_configs)
+                    ep_data = _build_episode_display_dict_fast(episode, customer_code, episode_col_configs, drama_name)
                     
                     # 设置序号
                     ep_data['vod_info_no'] = episode_sequence
@@ -652,10 +658,11 @@ def export_xinjiang_batch(drama_names: list = Body(..., embed=True)):
                 
                 # 获取该剧集的子集（从已查询的数据中获取）
                 episodes = episodes_by_drama.get(drama['drama_id'], [])
+                drama_name = drama.get('drama_name', '')
                 
                 for episode in episodes:
                     # 使用预获取的配置构建子集数据
-                    ep_data = _build_episode_display_dict_fast(episode, customer_code, episode_col_configs)
+                    ep_data = _build_episode_display_dict_fast(episode, customer_code, episode_col_configs, drama_name)
                     all_episodes.append(ep_data)
             
             # 创建DataFrame

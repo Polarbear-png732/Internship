@@ -4,16 +4,6 @@
 -- 
 -- ⚠️ 警告：此操作将删除所有数据且不可恢复！
 -- ⚠️ 建议：执行前请先备份整个数据库！
--- 
--- 备份数据库命令：
--- mysqldump -u root -p operation_management > backup_operation_management_$(date +%Y%m%d_%H%M%S).sql
--- 
--- 恢复数据库命令：
--- mysql -u root -p operation_management < backup_operation_management_YYYYMMDD_HHMMSS.sql
--- 
--- 执行方式：
--- PowerShell: Get-Content sql\truncate_all_tables.sql | mysql -u root -p operation_management
--- CMD: mysql -u root -p operation_management < sql\truncate_all_tables.sql
 
 USE operation_management;
 

@@ -512,7 +512,10 @@ async function searchDramaHeaderDirect() {
             }
             
             // 设置当前剧集信息
-            // 根据客户类型获取正确的ID和名称字段
+            // 优先使用API返回的数据库原始ID（用于导出等操作）
+            const dbDramaId = result.data.drama_id || header['_db_drama_id'];
+            
+            // 根据客户类型获取显示用的ID和名称字段
             let idField, nameField;
             if (currentCustomerCode === 'jiangsu_newmedia') {
                 // 江苏: sId是数据库ID, seriesName是名称
@@ -523,7 +526,8 @@ async function searchDramaHeaderDirect() {
                 idField = currentDramaColumns[0] || '剧头id';
                 nameField = currentDramaColumns[1] || '剧集名称';
             }
-            currentDramaId = header[idField];
+            // 使用数据库原始ID（如果有），否则使用显示字段中的ID
+            currentDramaId = dbDramaId || header[idField];
             currentDramaName = String(header[nameField] || '');
             currentDramaData = header;
             
@@ -990,7 +994,7 @@ function renderDramaDetailInline(header, episodes, container) {
         return fieldName;
     };
     
-    // 根据客户类型获取正确的ID和名称字段
+    // 根据客户类型获取正确的ID和名称字段（用于显示）
     let idField, nameField;
     if (currentCustomerCode === 'jiangsu_newmedia') {
         idField = 'sId';
@@ -999,8 +1003,10 @@ function renderDramaDetailInline(header, episodes, container) {
         idField = currentDramaColumns[0] || '剧头id';
         nameField = currentDramaColumns[1] || '剧集名称';
     }
-    const dramaId = header[idField] || '';
+    const displayDramaId = header[idField] || '';
     const dramaName = String(header[nameField] || '');
+    // 使用全局变量 currentDramaId（数据库原始ID）用于导出操作
+    const exportDramaId = currentDramaId || header['_db_drama_id'] || displayDramaId;
     
     let html = '<div class="space-y-6">';
     
@@ -1012,10 +1018,10 @@ function renderDramaDetailInline(header, episodes, container) {
     html += (dramaName && dramaName.length > 0 ? dramaName.charAt(0) : '剧');
     html += '</div>';
     html += '<div><h3 class="text-xl font-bold text-slate-900">' + dramaName + '</h3>';
-    html += '<p class="text-sm text-slate-500 mt-1">' + getDisplayName(idField) + ': ' + dramaId + ' | ' + currentCustomerName + '</p></div>';
+    html += '<p class="text-sm text-slate-500 mt-1">' + getDisplayName(idField) + ': ' + displayDramaId + ' | ' + currentCustomerName + '</p></div>';
     html += '</div>';
     html += '<div class="flex items-center gap-2">';
-    html += `<button onclick="exportDramaById(${dramaId})" 
+    html += `<button onclick="exportDramaById(${exportDramaId})" 
         class="text-green-600 hover:text-green-700 font-medium text-sm inline-flex items-center gap-1.5 bg-green-50 hover:bg-green-100 border border-green-200 hover:border-green-300 px-3 py-1.5 rounded-lg transition-all">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>

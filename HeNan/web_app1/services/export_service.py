@@ -175,10 +175,11 @@ class ExcelExportService:
             
             # 获取子集
             drama_episodes = episodes_by_drama.get(drama['drama_id'], [])
+            drama_name = drama.get('drama_name', '')
             
             for episode in drama_episodes:
                 episode_sequence += 1
-                ep_data = build_episode_display_dict_fast(episode, customer_code, episode_col_configs)
+                ep_data = build_episode_display_dict_fast(episode, customer_code, episode_col_configs, drama_name)
                 
                 # 处理序号字段
                 first_ep_col = episode_columns[0] if episode_columns else None
@@ -260,8 +261,9 @@ class ExcelExportService:
         
         # 构建子集数据
         episode_list = []
+        drama_name = drama.get('drama_name', '')
         for i, episode in enumerate(episodes, 1):
-            ep_data = build_episode_display_dict_fast(episode, customer_code, episode_col_configs)
+            ep_data = build_episode_display_dict_fast(episode, customer_code, episode_col_configs, drama_name)
             
             if customer_code == 'jiangsu_newmedia':
                 ep_data['vod_info_no'] = i

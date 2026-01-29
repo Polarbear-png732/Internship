@@ -82,23 +82,90 @@ def build_episode_display_dict(episode: dict, customer_code: str, drama_name: st
     """根据客户配置构建子集显示数据"""
     config = CUSTOMER_CONFIGS.get(customer_code, CUSTOMER_CONFIGS.get('henan_mobile', {}))
     col_configs = config.get('episode_columns', [])
-    return build_episode_display_dict_fast(episode, customer_code, col_configs)
+    # 如果没有传入drama_name，尝试从episode中获取
+    if not drama_name:
+        drama_name = episode.get('drama_name', '')
+    return build_episode_display_dict_fast(episode, customer_code, col_configs, drama_name)
 
 
-def build_episode_display_dict_fast(episode: dict, customer_code: str, col_configs: list) -> dict:
-    """根据客户配置构建子集显示数据（快速版本）"""
+def build_episode_display_dict_fast(episode: dict, customer_code: str, col_configs: list, drama_name: str = '') -> dict:
+    """根据客户配置构建子集显示数据（快速版本）
+    
+    支持的列类型：
+    - field: episode_id, episode_name
+    - value: 固定值
+    - type: episode_num, episode_name_format, duration_seconds, duration_minutes, 
+            duration_hhmmss, media_url, is_multi_episode
+    - source: 从props中获取
+    """
     props = episode.get('_parsed_props') if '_parsed_props' in episode else parse_json(episode)
+    
+    # 获取基础数据
+    episode_name = episode.get('episode_name', '')
+    # 尝试从episode_name中提取集数，格式通常是 "第X集" 或直接是数字
+    ep_num = 1
+    import re
+    match = re.search(r'第(\d+)集', episode_name)
+    if match:
+        ep_num = int(match.group(1))
+    elif episode_name.isdigit():
+        ep_num = int(episode_name)
+    else:
+        # 尝试从props中获取
+        ep_num = props.get('episode_num', props.get('集数', 1))
+        if isinstance(ep_num, str) and ep_num.isdigit():
+            ep_num = int(ep_num)
+        elif not isinstance(ep_num, int):
+            ep_num = 1
+    
+    # 获取时长（秒）
+    duration = props.get('duration', props.get('时长', props.get('时长（秒）', 0)))
+    if isinstance(duration, str):
+        try:
+            duration = float(duration) if duration else 0
+        except:
+            duration = 0
     
     result = {}
     for col_config in col_configs:
         col_name = col_config['col']
+        col_type = col_config.get('type')
         
         if col_config.get('field') == 'episode_id':
             result[col_name] = episode.get('episode_id', '')
         elif col_config.get('field') == 'episode_name':
-            result[col_name] = episode.get('episode_name', '')
+            result[col_name] = episode_name
         elif 'value' in col_config:
             result[col_name] = col_config['value']
+        elif col_type == 'episode_num':
+            result[col_name] = ep_num
+        elif col_type == 'episode_name_format':
+            fmt = col_config.get('format', '{drama_name}第{ep}集')
+            result[col_name] = fmt.format(drama_name=drama_name, ep=ep_num)
+        elif col_type == 'duration_seconds':
+            result[col_name] = int(duration) if duration else 0
+        elif col_type == 'duration_minutes':
+            result[col_name] = round(duration / 60, 2) if duration else 0
+        elif col_type == 'duration_hhmmss':
+            if duration:
+                h = int(duration // 3600)
+                m = int((duration % 3600) // 60)
+                s = int(duration % 60)
+                result[col_name] = f"{h:02d}:{m:02d}:{s:02d}"
+            else:
+                result[col_name] = "00:00:00"
+        elif col_type == 'is_multi_episode':
+            # 是否多集：0表示单集，1表示多集
+            result[col_name] = 0
+        elif col_type == 'media_url':
+            # 媒体URL从props中获取
+            result[col_name] = props.get('媒体拉取地址', props.get('fileURL', ''))
+        elif 'source' in col_config:
+            source_field = col_config['source']
+            value = props.get(source_field, props.get(col_name))
+            if (value is None or value == '') and 'default' in col_config:
+                value = col_config['default']
+            result[col_name] = value if value is not None else ''
         else:
             value = props.get(col_name)
             if (value is None or value == '') and 'default' in col_config:

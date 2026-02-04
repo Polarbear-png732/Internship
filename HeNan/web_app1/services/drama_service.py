@@ -351,3 +351,183 @@ def group_episodes_by_drama(episodes: list) -> dict:
             episodes_by_drama[drama_id] = []
         episodes_by_drama[drama_id].append(episode)
     return episodes_by_drama
+
+
+# ============================================================
+# 剧集详情服务
+# ============================================================
+
+class DramaDetailService:
+    """剧集详情业务逻辑"""
+    
+    @staticmethod
+    def get_drama_with_episodes(name: str, customer_code: str) -> Optional[dict]:
+        """
+        获取剧集详情（包含子集）
+        返回按客户格式构建的完整数据
+        """
+        drama = DramaQueryService.get_drama_by_name(name, customer_code)
+        if not drama:
+            return None
+        
+        # 按客户格式构建剧头数据
+        header_dict = build_drama_display_dict(drama, customer_code)
+        
+        # 获取子集
+        episodes = DramaQueryService.get_episodes_by_drama_id(drama['drama_id'])
+        
+        # 按客户格式构建子集数据
+        episode_list = []
+        for episode in episodes:
+            ep_data = build_episode_display_dict(episode, customer_code, drama['drama_name'])
+            episode_list.append(ep_data)
+        
+        # 获取列名配置
+        drama_columns = get_column_names(customer_code, 'drama')
+        episode_columns = get_column_names(customer_code, 'episode')
+        
+        # 在header中添加数据库原始ID
+        header_dict['_db_drama_id'] = drama['drama_id']
+        
+        return {
+            "header": header_dict,
+            "episodes": episode_list,
+            "drama_columns": drama_columns,
+            "episode_columns": episode_columns,
+            "customer_code": customer_code,
+            "customer_name": CUSTOMER_CONFIGS.get(customer_code, {}).get('name', ''),
+            "drama_id": drama['drama_id']
+        }
+    
+    @staticmethod
+    def get_drama_detail_by_id(drama_id: int) -> Optional[dict]:
+        """根据ID获取剧集详情（按客户格式）"""
+        drama = DramaQueryService.get_drama_by_id(drama_id)
+        if not drama:
+            return None
+        
+        customer_code = drama.get('customer_code', 'henan_mobile')
+        return build_drama_display_dict(drama, customer_code)
+
+
+# ============================================================
+# 批量查询服务
+# ============================================================
+
+class BatchQueryService:
+    """批量查询业务逻辑"""
+    
+    @staticmethod
+    def batch_query_dramas(drama_names: list, customer_code: str) -> dict:
+        """
+        批量查询剧集信息
+        返回包含找到/未找到统计的结果
+        """
+        if not drama_names:
+            return {"results": [], "total": 0, "found": 0, "not_found": 0}
+        
+        with get_db() as conn:
+            cursor = conn.cursor(pymysql.cursors.DictCursor)
+            
+            # 批量查询剧头信息
+            placeholders = ','.join(['%s'] * len(drama_names))
+            query = f"""
+                SELECT drama_id, drama_name, dynamic_properties
+                FROM drama_main
+                WHERE customer_code = %s AND drama_name IN ({placeholders})
+            """
+            cursor.execute(query, [customer_code] + drama_names)
+            dramas = cursor.fetchall()
+            
+            # 构建映射
+            drama_map = {}
+            drama_ids = []
+            for drama in dramas:
+                drama_name = drama['drama_name']
+                drama_map[drama_name] = {
+                    'drama_id': drama['drama_id'],
+                    'drama_name': drama_name,
+                    'properties': parse_json(drama)
+                }
+                drama_ids.append(drama['drama_id'])
+            
+            # 批量查询子集数量
+            episode_counts = {}
+            if drama_ids:
+                placeholders = ','.join(['%s'] * len(drama_ids))
+                cursor.execute(
+                    f"SELECT drama_id, COUNT(*) as episode_count FROM drama_episode WHERE drama_id IN ({placeholders}) GROUP BY drama_id",
+                    drama_ids
+                )
+                episode_counts = {row['drama_id']: row['episode_count'] for row in cursor.fetchall()}
+            
+            # 构建返回结果
+            results = []
+            for name in drama_names:
+                if name in drama_map:
+                    drama_info = drama_map[name]
+                    drama_id = drama_info['drama_id']
+                    props = drama_info['properties']
+                    description = props.get('description', '') or props.get('简介', '')
+                    
+                    results.append({
+                        'name': name,
+                        'found': True,
+                        'drama_id': drama_id,
+                        'episode_count': episode_counts.get(drama_id, 0),
+                        'description': description
+                    })
+                else:
+                    results.append({'name': name, 'found': False})
+        
+        return {
+            "results": results,
+            "total": len(drama_names),
+            "found": len([r for r in results if r['found']]),
+            "not_found": len([r for r in results if not r['found']])
+        }
+    
+    @staticmethod
+    def extract_drama_names_from_excel(file_bytes: bytes) -> dict:
+        """
+        从Excel文件中提取剧集名称
+        返回剧集名称列表和相关信息
+        """
+        import pandas as pd
+        from io import BytesIO
+        
+        excel_data = BytesIO(file_bytes)
+        df = pd.read_excel(excel_data, dtype=str).fillna('')
+        
+        if df.empty:
+            raise ValueError("Excel文件为空")
+        
+        # 查找剧集名称列
+        possible_names = ['剧集名称', '名称', '剧名', '片名', '内容名称', 'seriesName', '剧头名称']
+        name_column = None
+        
+        for col in df.columns:
+            col_str = str(col).strip()
+            if any(name in col_str for name in possible_names):
+                name_column = col
+                break
+        
+        if name_column is None:
+            name_column = df.columns[0]
+        
+        # 提取剧集名称
+        drama_names = []
+        for value in df[name_column]:
+            name = str(value).strip()
+            if name and name != '' and name.lower() != 'nan':
+                drama_names.append(name)
+        
+        if not drama_names:
+            raise ValueError("Excel文件中没有找到有效的剧集名称")
+        
+        return {
+            "drama_names": drama_names,
+            "count": len(drama_names),
+            "column_name": str(name_column)
+        }
+

@@ -30,6 +30,7 @@ from services.copyright_service import (
     COPYRIGHT_EXPORT_COLUMNS, convert_decimal, convert_row
 )
 from services.cache_service import get_cache, CacheKeys
+from logging_config import logger
 
 router = APIRouter(prefix="/api/copyright", tags=["版权管理"])
 
@@ -67,226 +68,217 @@ def get_copyright_list(
     if cached_result is not None:
         return cached_result
     
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor(pymysql.cursors.DictCursor)
-            
-            where_clause, params = "", []
-            if keyword:
-                where_clause = "WHERE media_name LIKE %s"
-                params.append(f"%{keyword}%")
-            
-            cursor.execute(f"SELECT COUNT(*) as total FROM copyright_content {where_clause}", params)
-            total = cursor.fetchone()['total']
-            
-            offset = (page - 1) * page_size
-            cursor.execute(f"SELECT * FROM copyright_content {where_clause} ORDER BY id DESC LIMIT %s OFFSET %s",
-                          params + [page_size, offset])
-            items = cursor.fetchall()
-            
-            result = {
-                "code": 200, "message": "success",
-                "data": {"list": items, "total": total, "page": page, "page_size": page_size,
-                        "total_pages": (total + page_size - 1) // page_size}
-            }
-            
-            # 缓存结果（仅缓存第一页和无关键词的查询）
-            if page == 1 and not keyword:
-                cache.set(cache_key, result, ttl=60)  # 缓存1分钟
-            
-            return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db() as conn:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        where_clause, params = "", []
+        if keyword:
+            where_clause = "WHERE media_name LIKE %s"
+            params.append(f"%{keyword}%")
+        
+        cursor.execute(f"SELECT COUNT(*) as total FROM copyright_content {where_clause}", params)
+        total = cursor.fetchone()['total']
+        
+        offset = (page - 1) * page_size
+        cursor.execute(f"SELECT * FROM copyright_content {where_clause} ORDER BY id DESC LIMIT %s OFFSET %s",
+                      params + [page_size, offset])
+        items = cursor.fetchall()
+        
+        result = {
+            "code": 200, "message": "success",
+            "data": {"list": items, "total": total, "page": page, "page_size": page_size,
+                    "total_pages": (total + page_size - 1) // page_size}
+        }
+        
+        # 缓存结果（仅缓存第一页和无关键词的查询）
+        if page == 1 and not keyword:
+            cache.set(cache_key, result, ttl=60)  # 缓存1分钟
+        
+        return result
 
 
 @router.get("/template")
 def download_import_template():
     """下载版权方数据导入模板（只有表头的Excel文件）"""
-    try:
-        # 使用导出的列名顺序创建空的DataFrame，只有表头
-        columns = list(COPYRIGHT_EXPORT_COLUMNS.values())
+    # 使用导出的列名顺序创建空的DataFrame，只有表头
+    columns = list(COPYRIGHT_EXPORT_COLUMNS.values())
+    
+    df = pd.DataFrame(columns=columns)
+    
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='版权方数据模板', index=False)
         
-        df = pd.DataFrame(columns=columns)
+        workbook = writer.book
+        worksheet = writer.sheets['版权方数据模板']
         
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, sheet_name='版权方数据模板', index=False)
-            
-            workbook = writer.book
-            worksheet = writer.sheets['版权方数据模板']
-            
-            # 设置列宽
-            col_widths = {
-                '上游版权方': 15, 
-                '介质名称': 25, 
-                '一级分类': 10, 
-                '二级分类': 10, 
-                '一级分类-河南标准': 15, 
-                '二级分类-河南标准': 15, 
-                '集数': 8, 
-                '单集时长（分）': 12, 
-                '总时长（分）': 12, 
-                '出品年代': 10, 
-                '首播日期': 12,
-                '授权区域（全国/单独沟通）': 20, 
-                '授权平台（IPTV、OTT、小屏、待沟通）': 30, 
-                '合作方式（采买/分成）': 18, 
-                '制作地区': 12,
-                '语言': 10, 
-                '语言-河南标准': 15, 
-                '国别': 10,
-                '导演': 15, 
-                '编剧': 15, 
-                '主演\\嘉宾\\主持人': 20, 
-                '作者': 15,
-                '推荐语/一句话介绍': 30, 
-                '简介': 40, 
-                '关键字': 15, 
-                '标清\\高清\\4K\\3D\\杜比': 15, 
-                '发行许可编号\\备案号等': 20, 
-                '行业内相关网站的评级、评分（骨朵\\艺恩\\猫眼\\豆瓣\\时光网\\百度\\其他主流视频网站等评分': 35,
-                '独家\\非独': 10, 
-                '版权开始时间': 12, 
-                '版权结束时间': 12,
-                '二级分类-山东': 15,
-            }
-            
-            # 应用列宽
-            for i, col_name in enumerate(columns):
-                width = col_widths.get(col_name, 12)
-                worksheet.set_column(i, i, width)
-            
-            # 设置表头格式
-            header_format = workbook.add_format({
-                'bold': True,
-                'bg_color': '#E0E7FF',
-                'border': 1,
-                'text_wrap': True,
-                'valign': 'vcenter',
-                'align': 'center'
-            })
-            
-            for col_num, value in enumerate(columns):
-                worksheet.write(0, col_num, value, header_format)
-            
-            # 设置首行高度
-            worksheet.set_row(0, 30)
+        # 设置列宽
+        col_widths = {
+            '上游版权方': 15, 
+            '介质名称': 25, 
+            '一级分类': 10, 
+            '二级分类': 10, 
+            '一级分类-河南标准': 15, 
+            '二级分类-河南标准': 15, 
+            '集数': 8, 
+            '单集时长（分）': 12, 
+            '总时长（分）': 12, 
+            '出品年代': 10, 
+            '首播日期': 12,
+            '授权区域（全国/单独沟通）': 20, 
+            '授权平台（IPTV、OTT、小屏、待沟通）': 30, 
+            '合作方式（采买/分成）': 18, 
+            '制作地区': 12,
+            '语言': 10, 
+            '语言-河南标准': 15, 
+            '国别': 10,
+            '导演': 15, 
+            '编剧': 15, 
+            '主演\\嘉宾\\主持人': 20, 
+            '作者': 15,
+            '推荐语/一句话介绍': 30, 
+            '简介': 40, 
+            '关键字': 15, 
+            '标清\\高清\\4K\\3D\\杜比': 15, 
+            '发行许可编号\\备案号等': 20, 
+            '行业内相关网站的评级、评分（骨朵\\艺恩\\猫眼\\豆瓣\\时光网\\百度\\其他主流视频网站等评分': 35,
+            '独家\\非独': 10, 
+            '版权开始时间': 12, 
+            '版权结束时间': 12,
+            '二级分类-山东': 15,
+        }
         
-        output.seek(0)
-        filename_encoded = quote('版权方数据导入模板.xlsx')
+        # 应用列宽
+        for i, col_name in enumerate(columns):
+            width = col_widths.get(col_name, 12)
+            worksheet.set_column(i, i, width)
         
-        return StreamingResponse(
-            output,
-            media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            headers={'Content-Disposition': f'attachment; filename*=UTF-8\'\'{filename_encoded}'}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"生成模板失败: {str(e)}")
+        # 设置表头格式
+        header_format = workbook.add_format({
+            'bold': True,
+            'bg_color': '#E0E7FF',
+            'border': 1,
+            'text_wrap': True,
+            'valign': 'vcenter',
+            'align': 'center'
+        })
+        
+        for col_num, value in enumerate(columns):
+            worksheet.write(0, col_num, value, header_format)
+        
+        # 设置首行高度
+        worksheet.set_row(0, 30)
+    
+    output.seek(0)
+    filename_encoded = quote('版权方数据导入模板.xlsx')
+    
+    return StreamingResponse(
+        output,
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename*=UTF-8\'\'{filename_encoded}'}
+    )
 
 
 @router.get("/export")
 def export_copyright_to_excel():
     """导出所有版权方数据为Excel文件（高性能版本）"""
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor(pymysql.cursors.DictCursor)
-            cursor.execute("SELECT * FROM copyright_content ORDER BY id")
-            items = cursor.fetchall()
-        
-        export_data = []
-        for item in items:
-            row = {}
-            for db_col, cn_col in COPYRIGHT_EXPORT_COLUMNS.items():
-                value = item.get(db_col, '')
-                
-                # 将单集时长和总时长转换为整数
-                if db_col in ['single_episode_duration', 'total_duration']:
-                    if value is not None and value != '':
-                        try:
-                            # 转换为整数（四舍五入）
-                            value = int(round(float(value)))
-                        except (ValueError, TypeError):
-                            value = ''
-                    else:
+    with get_db() as conn:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute("SELECT * FROM copyright_content ORDER BY id")
+        items = cursor.fetchall()
+    
+    export_data = []
+    for item in items:
+        row = {}
+        for db_col, cn_col in COPYRIGHT_EXPORT_COLUMNS.items():
+            value = item.get(db_col, '')
+            
+            # 将单集时长和总时长转换为整数
+            if db_col in ['single_episode_duration', 'total_duration']:
+                if value is not None and value != '':
+                    try:
+                        # 转换为整数（四舍五入）
+                        value = int(round(float(value)))
+                    except (ValueError, TypeError):
                         value = ''
+                else:
+                    value = ''
+            
+            # 截断过长的文本
+            if value and isinstance(value, str) and len(value) > 100:
+                value = value[:100] + '...'
                 
-                # 截断过长的文本
-                if value and isinstance(value, str) and len(value) > 100:
-                    value = value[:100] + '...'
-                    
-                row[cn_col] = value
-            export_data.append(row)
+            row[cn_col] = value
+        export_data.append(row)
+    
+    df = pd.DataFrame(export_data, columns=list(COPYRIGHT_EXPORT_COLUMNS.values()))
+    
+    output = BytesIO()
+    # 使用 xlsxwriter 引擎，性能更好
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='版权方数据', index=False)
         
-        df = pd.DataFrame(export_data, columns=list(COPYRIGHT_EXPORT_COLUMNS.values()))
+        workbook = writer.book
+        worksheet = writer.sheets['版权方数据']
         
-        output = BytesIO()
-        # 使用 xlsxwriter 引擎，性能更好
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, sheet_name='版权方数据', index=False)
-            
-            workbook = writer.book
-            worksheet = writer.sheets['版权方数据']
-            
-            # 设置列宽（按照数据库表结构顺序，不包含序号(自定义)）
-            col_widths = {
-                '序号': 8, 
-                '上游版权方': 15, 
-                '介质名称': 25, 
-                '一级分类': 10, 
-                '二级分类': 10, 
-                '一级分类-河南标准': 15, 
-                '二级分类-河南标准': 15, 
-                '集数': 8, 
-                '单集时长（分）': 12, 
-                '总时长（分）': 12, 
-                '出品年代': 10, 
-                '首播日期': 12,
-                '授权区域（全国/单独沟通）': 20, 
-                '授权平台（IPTV、OTT、小屏、待沟通）': 30, 
-                '合作方式（采买/分成）': 18, 
-                '制作地区': 12,
-                '语言': 10, 
-                '语言-河南标准': 15, 
-                '国别': 10,
-                '导演': 15, 
-                '编剧': 15, 
-                '主演\\嘉宾\\主持人': 20, 
-                '作者': 15,
-                '推荐语/一句话介绍': 30, 
-                '简介': 40, 
-                '关键字': 20, 
-                '标清\\高清\\4K\\3D\\杜比': 18, 
-                '发行许可编号\\备案号等': 20, 
-                '行业内相关网站的评级、评分（骨朵\\艺恩\\猫眼\\豆瓣\\时光网\\百度\\其他主流视频网站等评分': 50, 
-                '独家\\非独': 12, 
-                '版权开始时间': 15, 
-                '版权结束时间': 15, 
-                '二级分类-山东': 15
-            }
-            
-            for idx, col_name in enumerate(df.columns):
-                width = col_widths.get(col_name, 15)
-                worksheet.set_column(idx, idx, width)
-            
-            # 设置表头格式
-            header_format = workbook.add_format({
-                'bold': True, 'align': 'center', 'valign': 'vcenter',
-                'bg_color': '#4472C4', 'font_color': 'white', 'border': 1
-            })
-            for idx, col_name in enumerate(df.columns):
-                worksheet.write(0, idx, col_name, header_format)
-            
-            # 冻结首行
-            worksheet.freeze_panes(1, 0)
+        # 设置列宽（按照数据库表结构顺序，不包含序号(自定义)）
+        col_widths = {
+            '序号': 8, 
+            '上游版权方': 15, 
+            '介质名称': 25, 
+            '一级分类': 10, 
+            '二级分类': 10, 
+            '一级分类-河南标准': 15, 
+            '二级分类-河南标准': 15, 
+            '集数': 8, 
+            '单集时长（分）': 12, 
+            '总时长（分）': 12, 
+            '出品年代': 10, 
+            '首播日期': 12,
+            '授权区域（全国/单独沟通）': 20, 
+            '授权平台（IPTV、OTT、小屏、待沟通）': 30, 
+            '合作方式（采买/分成）': 18, 
+            '制作地区': 12,
+            '语言': 10, 
+            '语言-河南标准': 15, 
+            '国别': 10,
+            '导演': 15, 
+            '编剧': 15, 
+            '主演\\嘉宾\\主持人': 20, 
+            '作者': 15,
+            '推荐语/一句话介绍': 30, 
+            '简介': 40, 
+            '关键字': 20, 
+            '标清\\高清\\4K\\3D\\杜比': 18, 
+            '发行许可编号\\备案号等': 20, 
+            '行业内相关网站的评级、评分（骨朵\\艺恩\\猫眼\\豆瓣\\时光网\\百度\\其他主流视频网站等评分': 50, 
+            '独家\\非独': 12, 
+            '版权开始时间': 15, 
+            '版权结束时间': 15, 
+            '二级分类-山东': 15
+        }
         
-        output.seek(0)
-        return StreamingResponse(
-            output,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote('版权方数据.xlsx')}"}
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        for idx, col_name in enumerate(df.columns):
+            width = col_widths.get(col_name, 15)
+            worksheet.set_column(idx, idx, width)
+        
+        # 设置表头格式
+        header_format = workbook.add_format({
+            'bold': True, 'align': 'center', 'valign': 'vcenter',
+            'bg_color': '#4472C4', 'font_color': 'white', 'border': 1
+        })
+        for idx, col_name in enumerate(df.columns):
+            worksheet.write(0, idx, col_name, header_format)
+        
+        # 冻结首行
+        worksheet.freeze_panes(1, 0)
+    
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote('版权方数据.xlsx')}"}
+    )
 
 
 @router.get("/customers")
@@ -305,18 +297,13 @@ def get_customer_list():
 @router.get("/{item_id}")
 def get_copyright_detail(item_id: int):
     """获取版权方数据详情"""
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor(pymysql.cursors.DictCursor)
-            cursor.execute("SELECT * FROM copyright_content WHERE id = %s", (item_id,))
-            item = cursor.fetchone()
-            if not item:
-                raise HTTPException(status_code=404, detail="数据不存在")
-            return {"code": 200, "message": "success", "data": item}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    with get_db() as conn:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute("SELECT * FROM copyright_content WHERE id = %s", (item_id,))
+        item = cursor.fetchone()
+        if not item:
+            raise HTTPException(status_code=404, detail="数据不存在")
+        return {"code": 200, "message": "success", "data": item}
 
 
 @router.post("")
@@ -329,55 +316,51 @@ def create_copyright(data: Dict[str, Any] = Body(...)):
     
     media_name = data['media_name']
     
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor(pymysql.cursors.DictCursor)
+    with get_db() as conn:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        try:
+            # 1. 为所有启用的客户创建剧头和子集
+            enabled_customers = get_enabled_customers()
+            drama_ids = {}
             
-            try:
-                # 1. 为所有启用的客户创建剧头和子集
-                enabled_customers = get_enabled_customers()
-                drama_ids = {}
-                total_episodes = int(data.get('episode_count') or 0)
-                
-                for customer_code in enabled_customers:
-                    drama_id = _create_drama_for_customer(cursor, data, media_name, customer_code)
-                    drama_ids[customer_code] = drama_id
-                
-                # 2. 插入版权方数据
-                insert_fields = ['drama_ids']
-                insert_values = [json.dumps(drama_ids)]
-                
-                for field in COPYRIGHT_FIELDS:
-                    if field in data and data[field] is not None:
-                        insert_fields.append(field)
-                        insert_values.append(data[field])
-                
-                cursor.execute(
-                    f"INSERT INTO copyright_content ({', '.join(insert_fields)}) VALUES ({', '.join(['%s'] * len(insert_fields))})",
-                    insert_values
-                )
-                
-                copyright_id = cursor.lastrowid
-                conn.commit()
-                
-                elapsed_time = time.time() - start_time
-                return {
-                    "code": 200, "message": "创建成功",
-                    "data": {
-                        "copyright_id": copyright_id,
-                        "drama_ids": drama_ids,
-                        "customers_count": len(drama_ids),
-                        "elapsed_time": f"{elapsed_time:.3f}s"
-                    }
+            for customer_code in enabled_customers:
+                drama_id = _create_drama_for_customer(cursor, data, media_name, customer_code)
+                drama_ids[customer_code] = drama_id
+            
+            # 2. 插入版权方数据
+            insert_fields = ['drama_ids']
+            insert_values = [json.dumps(drama_ids)]
+            
+            for field in COPYRIGHT_FIELDS:
+                if field in data and data[field] is not None:
+                    insert_fields.append(field)
+                    insert_values.append(data[field])
+            
+            cursor.execute(
+                f"INSERT INTO copyright_content ({', '.join(insert_fields)}) VALUES ({', '.join(['%s'] * len(insert_fields))})",
+                insert_values
+            )
+            
+            copyright_id = cursor.lastrowid
+            conn.commit()
+            
+            logger.info(f"版权数据创建成功: id={copyright_id}, name={media_name}")
+            
+            elapsed_time = time.time() - start_time
+            return {
+                "code": 200, "message": "创建成功",
+                "data": {
+                    "copyright_id": copyright_id,
+                    "drama_ids": drama_ids,
+                    "customers_count": len(drama_ids),
+                    "elapsed_time": f"{elapsed_time:.3f}s"
                 }
-            except Exception as e:
-                conn.rollback()
-                raise HTTPException(status_code=500, detail=f"创建失败: {str(e)}")
-                
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            }
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"版权数据创建失败: {media_name}, 错误: {e}")
+            raise
 
 
 @router.put("/{item_id}")
@@ -385,119 +368,37 @@ def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
     """更新版权方数据，并同步更新所有关联的剧集和子集（增量更新，事务保护）"""
     start_time = time.time()
     
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor(pymysql.cursors.DictCursor)
+    with get_db() as conn:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        # 获取原数据
+        cursor.execute("SELECT * FROM copyright_content WHERE id = %s", (item_id,))
+        item = cursor.fetchone()
+        if not item:
+            raise HTTPException(status_code=404, detail="数据不存在")
+        
+        # 保存原数据用于增量更新比较
+        old_media_name = item.get('media_name')
+        old_episode_count = int(item.get('episode_count') or 0)
+        
+        try:
+            # 1. 更新版权方表
+            update_parts, update_values = [], []
+            for field in COPYRIGHT_FIELDS:
+                if field in data:
+                    update_parts.append(f"{field} = %s")
+                    update_values.append(data[field])
             
-            # 获取原数据
-            cursor.execute("SELECT * FROM copyright_content WHERE id = %s", (item_id,))
-            item = cursor.fetchone()
-            if not item:
-                raise HTTPException(status_code=404, detail="数据不存在")
+            if update_parts:
+                update_values.append(item_id)
+                cursor.execute(f"UPDATE copyright_content SET {', '.join(update_parts)} WHERE id = %s", update_values)
             
-            # 保存原数据用于增量更新比较
-            old_media_name = item.get('media_name')
-            old_episode_count = int(item.get('episode_count') or 0)
+            # 2. 合并数据
+            merged_data = dict(item)
+            merged_data.update(data)
+            media_name = merged_data.get('media_name')
             
-            try:
-                # 1. 更新版权方表
-                update_parts, update_values = [], []
-                changed_fields = {}
-                for field in COPYRIGHT_FIELDS:
-                    if field in data:
-                        update_parts.append(f"{field} = %s")
-                        update_values.append(data[field])
-                        # 记录变更字段
-                        if item.get(field) != data[field]:
-                            changed_fields[field] = {'old': item.get(field), 'new': data[field]}
-                
-                if update_parts:
-                    update_values.append(item_id)
-                    cursor.execute(f"UPDATE copyright_content SET {', '.join(update_parts)} WHERE id = %s", update_values)
-                
-                # 2. 合并数据
-                merged_data = dict(item)
-                merged_data.update(data)
-                media_name = merged_data.get('media_name')
-                
-                # 3. 获取现有的 drama_ids
-                drama_ids_raw = item.get('drama_ids')
-                if isinstance(drama_ids_raw, str):
-                    drama_ids = json.loads(drama_ids_raw) if drama_ids_raw else {}
-                elif isinstance(drama_ids_raw, dict):
-                    drama_ids = drama_ids_raw
-                else:
-                    drama_ids = {}
-                
-                # 4. 更新所有已存在的客户剧头（增量更新）
-                total_stats = {'dramas_updated': 0, 'episodes_added': 0, 'episodes_deleted': 0, 'episodes_updated': 0}
-                
-                for customer_code, drama_id in drama_ids.items():
-                    if drama_id:
-                        stats = _update_drama_for_customer(
-                            cursor, drama_id, merged_data, media_name, customer_code,
-                            old_episode_count=old_episode_count,
-                            old_media_name=old_media_name
-                        )
-                        total_stats['dramas_updated'] += 1
-                        total_stats['episodes_added'] += stats.get('added', 0)
-                        total_stats['episodes_deleted'] += stats.get('deleted', 0)
-                        total_stats['episodes_updated'] += stats.get('updated', 0)
-                
-                # 5. 为新启用的客户创建剧头（如果有）
-                enabled_customers = get_enabled_customers()
-                for customer_code in enabled_customers:
-                    if customer_code not in drama_ids:
-                        new_drama_id = _create_drama_for_customer(cursor, merged_data, media_name, customer_code)
-                        drama_ids[customer_code] = new_drama_id
-                
-                # 6. 更新 drama_ids
-                cursor.execute(
-                    "UPDATE copyright_content SET drama_ids = %s WHERE id = %s",
-                    (json.dumps(drama_ids), item_id)
-                )
-                
-                # 单一事务提交
-                conn.commit()
-                
-                elapsed_time = time.time() - start_time
-                return {
-                    "code": 200, 
-                    "message": "更新成功", 
-                    "data": {
-                        "id": item_id, 
-                        "drama_ids": drama_ids,
-                        "stats": total_stats,
-                        "elapsed_time": f"{elapsed_time:.3f}s"
-                    }
-                }
-                
-            except Exception as e:
-                # 事务回滚
-                conn.rollback()
-                raise HTTPException(status_code=500, detail=f"更新失败: {str(e)}")
-                
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/{item_id}")
-def delete_copyright(item_id: int):
-    """删除版权方数据及所有关联的剧集和子集"""
-    try:
-        with get_db() as conn:
-            cursor = conn.cursor(pymysql.cursors.DictCursor)
-            
-            cursor.execute("SELECT id, media_name, drama_ids FROM copyright_content WHERE id = %s", (item_id,))
-            item = cursor.fetchone()
-            if not item:
-                raise HTTPException(status_code=404, detail="数据不存在")
-            
-            media_name = item.get('media_name')
-            
-            # 获取所有关联的 drama_ids
+            # 3. 获取现有的 drama_ids
             drama_ids_raw = item.get('drama_ids')
             if isinstance(drama_ids_raw, str):
                 drama_ids = json.loads(drama_ids_raw) if drama_ids_raw else {}
@@ -506,30 +407,99 @@ def delete_copyright(item_id: int):
             else:
                 drama_ids = {}
             
-            try:
-                # 删除所有关联的剧头和子集
-                deleted_dramas = []
-                for customer_code, drama_id in drama_ids.items():
-                    if drama_id:
-                        _delete_drama_and_episodes(cursor, drama_id)
-                        deleted_dramas.append(drama_id)
-                
-                # 删除版权数据
-                cursor.execute("DELETE FROM copyright_content WHERE id = %s", (item_id,))
-                conn.commit()
-                
-                return {
-                    "code": 200, "message": "删除成功",
-                    "data": {"id": item_id, "deleted_dramas": deleted_dramas}
+            # 4. 更新所有已存在的客户剧头（增量更新）
+            total_stats = {'dramas_updated': 0, 'episodes_added': 0, 'episodes_deleted': 0, 'episodes_updated': 0}
+            
+            for customer_code, drama_id in drama_ids.items():
+                if drama_id:
+                    stats = _update_drama_for_customer(
+                        cursor, drama_id, merged_data, media_name, customer_code,
+                        old_episode_count=old_episode_count,
+                        old_media_name=old_media_name
+                    )
+                    total_stats['dramas_updated'] += 1
+                    total_stats['episodes_added'] += stats.get('added', 0)
+                    total_stats['episodes_deleted'] += stats.get('deleted', 0)
+                    total_stats['episodes_updated'] += stats.get('updated', 0)
+            
+            # 5. 为新启用的客户创建剧头（如果有）
+            enabled_customers = get_enabled_customers()
+            for customer_code in enabled_customers:
+                if customer_code not in drama_ids:
+                    new_drama_id = _create_drama_for_customer(cursor, merged_data, media_name, customer_code)
+                    drama_ids[customer_code] = new_drama_id
+            
+            # 6. 更新 drama_ids
+            cursor.execute(
+                "UPDATE copyright_content SET drama_ids = %s WHERE id = %s",
+                (json.dumps(drama_ids), item_id)
+            )
+            
+            conn.commit()
+            logger.info(f"版权数据更新成功: id={item_id}, name={media_name}")
+            
+            elapsed_time = time.time() - start_time
+            return {
+                "code": 200, 
+                "message": "更新成功", 
+                "data": {
+                    "id": item_id, 
+                    "drama_ids": drama_ids,
+                    "stats": total_stats,
+                    "elapsed_time": f"{elapsed_time:.3f}s"
                 }
-            except Exception as e:
-                conn.rollback()
-                raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
-                
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            }
+            
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"版权数据更新失败: id={item_id}, 错误: {e}")
+            raise
+
+
+@router.delete("/{item_id}")
+def delete_copyright(item_id: int):
+    """删除版权方数据及所有关联的剧集和子集"""
+    with get_db() as conn:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        
+        cursor.execute("SELECT id, media_name, drama_ids FROM copyright_content WHERE id = %s", (item_id,))
+        item = cursor.fetchone()
+        if not item:
+            raise HTTPException(status_code=404, detail="数据不存在")
+        
+        media_name = item.get('media_name')
+        
+        # 获取所有关联的 drama_ids
+        drama_ids_raw = item.get('drama_ids')
+        if isinstance(drama_ids_raw, str):
+            drama_ids = json.loads(drama_ids_raw) if drama_ids_raw else {}
+        elif isinstance(drama_ids_raw, dict):
+            drama_ids = drama_ids_raw
+        else:
+            drama_ids = {}
+        
+        try:
+            # 删除所有关联的剧头和子集
+            deleted_dramas = []
+            for customer_code, drama_id in drama_ids.items():
+                if drama_id:
+                    _delete_drama_and_episodes(cursor, drama_id)
+                    deleted_dramas.append(drama_id)
+            
+            # 删除版权数据
+            cursor.execute("DELETE FROM copyright_content WHERE id = %s", (item_id,))
+            conn.commit()
+            
+            logger.info(f"版权数据删除成功: id={item_id}, name={media_name}")
+            
+            return {
+                "code": 200, "message": "删除成功",
+                "data": {"id": item_id, "deleted_dramas": deleted_dramas}
+            }
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"版权数据删除失败: id={item_id}, 错误: {e}")
+            raise
 
 
 # ============================================================

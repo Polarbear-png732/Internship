@@ -297,14 +297,90 @@ async function exportDrama() {
     }
 }
 
+// ============================================================
+// Toast 通知系统
+// ============================================================
+
+/**
+ * 显示 Toast 通知
+ * @param {string} message - 通知消息
+ * @param {string} type - 通知类型: 'success' | 'error' | 'warning' | 'info'
+ * @param {number} duration - 显示时长（毫秒），默认 3000
+ */
+function showToast(message, type = 'info', duration = 3000) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    
+    // 图标配置
+    const icons = {
+        success: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`,
+        error: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" x2="9" y1="9" y2="15"/><line x1="9" x2="15" y1="9" y2="15"/></svg>`,
+        warning: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17" y2="17"/></svg>`,
+        info: `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="16" y2="12"/><line x1="12" x2="12.01" y1="8" y2="8"/></svg>`
+    };
+    
+    // 颜色配置
+    const colors = {
+        success: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+        error: 'bg-red-50 border-red-200 text-red-800',
+        warning: 'bg-amber-50 border-amber-200 text-amber-800',
+        info: 'bg-blue-50 border-blue-200 text-blue-800'
+    };
+    
+    const iconColors = {
+        success: 'text-emerald-500',
+        error: 'text-red-500',
+        warning: 'text-amber-500',
+        info: 'text-blue-500'
+    };
+    
+    // 创建 toast 元素
+    const toast = document.createElement('div');
+    toast.className = `toast flex items-start gap-3 px-4 py-3 rounded-lg border shadow-lg ${colors[type] || colors.info}`;
+    toast.innerHTML = `
+        <span class="${iconColors[type] || iconColors.info} flex-shrink-0 mt-0.5">${icons[type] || icons.info}</span>
+        <p class="text-sm font-medium flex-1">${message}</p>
+        <button onclick="closeToast(this.parentElement)" class="flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>
+        </button>
+    `;
+    
+    container.appendChild(toast);
+    
+    // 自动关闭
+    if (duration > 0) {
+        setTimeout(() => closeToast(toast), duration);
+    }
+}
+
+/**
+ * 关闭 Toast 通知
+ * @param {HTMLElement} toast - toast 元素
+ */
+function closeToast(toast) {
+    if (!toast || toast.classList.contains('toast-exit')) return;
+    toast.classList.add('toast-exit');
+    setTimeout(() => toast.remove(), 300);
+}
+
 // 显示错误消息
 function showError(message) {
-    alert('错误：' + message);
+    showToast(message, 'error', 5000);
 }
 
 // 显示成功消息
 function showSuccess(message) {
-    alert('成功：' + message);
+    showToast(message, 'success', 3000);
+}
+
+// 显示警告消息
+function showWarning(message) {
+    showToast(message, 'warning', 4000);
+}
+
+// 显示信息消息
+function showInfo(message) {
+    showToast(message, 'info', 3000);
 }
 
 // 打开编辑模态框

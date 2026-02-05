@@ -91,11 +91,13 @@ def build_episode_display_dict(episode: dict, customer_code: str, drama_name: st
 def build_episode_display_dict_fast(episode: dict, customer_code: str, col_configs: list, drama_name: str = '') -> dict:
     """根据客户配置构建子集显示数据（快速版本）
     
+    优先从 props 中直接读取已存储的值，只有当 props 中没有时才进行计算。
+    
     支持的列类型：
     - field: episode_id, episode_name
     - value: 固定值
     - type: episode_num, episode_name_format, duration_seconds, duration_minutes, 
-            duration_hhmmss, media_url, is_multi_episode
+            duration_hhmmss, media_url, is_multi_episode, md5, file_size, duration
     - source: 从props中获取
     """
     props = episode.get('_parsed_props') if '_parsed_props' in episode else parse_json(episode)
@@ -118,18 +120,15 @@ def build_episode_display_dict_fast(episode: dict, customer_code: str, col_confi
         elif not isinstance(ep_num, int):
             ep_num = 1
     
-    # 获取时长（秒）
-    duration = props.get('duration', props.get('时长', props.get('时长（秒）', 0)))
-    if isinstance(duration, str):
-        try:
-            duration = float(duration) if duration else 0
-        except:
-            duration = 0
-    
     result = {}
     for col_config in col_configs:
         col_name = col_config['col']
         col_type = col_config.get('type')
+        
+        # 优先检查 props 中是否已有该字段的值
+        if col_name in props and props[col_name] not in (None, ''):
+            result[col_name] = props[col_name]
+            continue
         
         if col_config.get('field') == 'episode_id':
             result[col_name] = episode.get('episode_id', '')
@@ -138,28 +137,17 @@ def build_episode_display_dict_fast(episode: dict, customer_code: str, col_confi
         elif 'value' in col_config:
             result[col_name] = col_config['value']
         elif col_type == 'episode_num':
-            result[col_name] = ep_num
+            result[col_name] = props.get(col_name, ep_num)
         elif col_type == 'episode_name_format':
             fmt = col_config.get('format', '{drama_name}第{ep}集')
-            result[col_name] = fmt.format(drama_name=drama_name, ep=ep_num)
-        elif col_type == 'duration_seconds':
-            result[col_name] = int(duration) if duration else 0
-        elif col_type == 'duration_minutes':
-            result[col_name] = round(duration / 60, 2) if duration else 0
-        elif col_type == 'duration_hhmmss':
-            if duration:
-                h = int(duration // 3600)
-                m = int((duration % 3600) // 60)
-                s = int(duration % 60)
-                result[col_name] = f"{h:02d}:{m:02d}:{s:02d}"
-            else:
-                result[col_name] = "00:00:00"
+            result[col_name] = props.get(col_name) or fmt.format(drama_name=drama_name, ep=ep_num)
+        elif col_type in ('duration_seconds', 'duration_minutes', 'duration_hhmmss', 'duration', 'file_size', 'md5'):
+            # 这些字段直接从 props 读取，导入时已正确计算
+            result[col_name] = props.get(col_name, 0 if col_type != 'md5' else '')
         elif col_type == 'is_multi_episode':
-            # 是否多集：0表示单集，1表示多集
-            result[col_name] = 0
+            result[col_name] = props.get(col_name, 0)
         elif col_type == 'media_url':
-            # 媒体URL从props中获取
-            result[col_name] = props.get('媒体拉取地址', props.get('fileURL', ''))
+            result[col_name] = props.get(col_name, props.get('媒体拉取地址', props.get('fileURL', '')))
         elif 'source' in col_config:
             source_field = col_config['source']
             value = props.get(source_field, props.get(col_name))

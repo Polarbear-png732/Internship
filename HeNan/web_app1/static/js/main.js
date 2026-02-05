@@ -1427,25 +1427,47 @@ async function editCopyrightContent(id) {
             `;
             
             document.getElementById('copyright-edit-id').value = id;
+            
+            // 基本信息
             document.getElementById('copyright-media-name').value = item.media_name || '';
             document.getElementById('copyright-upstream').value = item.upstream_copyright || '';
+            document.getElementById('copyright-episode-count').value = item.episode_count || '';
+            document.getElementById('copyright-single-duration').value = item.single_episode_duration || '';
+            document.getElementById('copyright-total-duration').value = item.total_duration || '';
+            document.getElementById('copyright-production-year').value = item.production_year || '';
+            document.getElementById('copyright-premiere-date').value = item.premiere_date || '';
+            document.getElementById('copyright-production-region').value = item.production_region || '';
+            document.getElementById('copyright-country').value = item.country || '';
+            document.getElementById('copyright-language').value = item.language || '';
+            document.getElementById('copyright-language-henan').value = item.language_henan || '';
+            document.getElementById('copyright-video-quality').value = item.video_quality || '';
+            
+            // 分类信息
             document.getElementById('copyright-category1').value = item.category_level1 || '';
             document.getElementById('copyright-category2').value = item.category_level2 || '';
             document.getElementById('copyright-category1-henan').value = item.category_level1_henan || '';
             document.getElementById('copyright-category2-henan').value = item.category_level2_henan || '';
             document.getElementById('copyright-category2-shandong').value = item.category_level2_shandong || '';
-            document.getElementById('copyright-episode-count').value = item.episode_count || '';
-            document.getElementById('copyright-single-duration').value = item.single_episode_duration || '';
-            document.getElementById('copyright-total-duration').value = item.total_duration || '';
-            document.getElementById('copyright-production-year').value = item.production_year || '';
-            document.getElementById('copyright-production-region').value = item.production_region || '';
-            document.getElementById('copyright-language').value = item.language || '';
-            document.getElementById('copyright-country').value = item.country || '';
+            
+            // 版权信息
+            document.getElementById('copyright-authorization-region').value = item.authorization_region || '';
+            document.getElementById('copyright-authorization-platform').value = item.authorization_platform || '';
+            document.getElementById('copyright-cooperation-mode').value = item.cooperation_mode || '';
+            document.getElementById('copyright-start-date').value = item.copyright_start_date || '';
+            document.getElementById('copyright-end-date').value = item.copyright_end_date || '';
+            document.getElementById('copyright-license-number').value = item.license_number || '';
+            document.getElementById('copyright-exclusive').value = item.exclusive_status || '';
+            document.getElementById('copyright-rating').value = item.rating || '';
+            
+            // 主创信息
             document.getElementById('copyright-director').value = item.director || '';
             document.getElementById('copyright-screenwriter').value = item.screenwriter || '';
-            document.getElementById('copyright-rating').value = item.rating || '';
-            document.getElementById('copyright-exclusive').value = item.exclusive_status || '';
+            document.getElementById('copyright-author').value = item.author || '';
             document.getElementById('copyright-cast').value = item.cast_members || '';
+            
+            // 描述信息
+            document.getElementById('copyright-keywords').value = item.keywords || '';
+            document.getElementById('copyright-recommendation').value = item.recommendation || '';
             document.getElementById('copyright-synopsis').value = item.synopsis || '';
             
             document.getElementById('add-copyright-modal').classList.remove('hidden');
@@ -1470,29 +1492,47 @@ async function saveCopyrightContent() {
     }
     
     const data = {
+        // 基本信息
         media_name: mediaName,
         upstream_copyright: document.getElementById('copyright-upstream').value.trim() || null,
+        episode_count: parseInt(document.getElementById('copyright-episode-count').value) || null,
+        single_episode_duration: parseFloat(document.getElementById('copyright-single-duration').value) || null,
+        total_duration: parseFloat(document.getElementById('copyright-total-duration').value) || null,
+        production_year: parseInt(document.getElementById('copyright-production-year').value) || null,
+        premiere_date: document.getElementById('copyright-premiere-date').value.trim() || null,
+        production_region: document.getElementById('copyright-production-region').value.trim() || null,
+        country: document.getElementById('copyright-country').value.trim() || null,
+        language: document.getElementById('copyright-language').value.trim() || null,
+        language_henan: document.getElementById('copyright-language-henan').value.trim() || null,
+        video_quality: document.getElementById('copyright-video-quality').value.trim() || null,
+        
+        // 分类信息
         category_level1: document.getElementById('copyright-category1').value.trim() || null,
         category_level2: document.getElementById('copyright-category2').value.trim() || null,
         category_level1_henan: document.getElementById('copyright-category1-henan').value.trim() || null,
         category_level2_henan: document.getElementById('copyright-category2-henan').value.trim() || null,
         category_level2_shandong: document.getElementById('copyright-category2-shandong').value.trim() || null,
-        episode_count: parseInt(document.getElementById('copyright-episode-count').value) || null,
-        single_episode_duration: parseFloat(document.getElementById('copyright-single-duration').value) || null,
-        total_duration: parseFloat(document.getElementById('copyright-total-duration').value) || null,
-        production_year: parseInt(document.getElementById('copyright-production-year').value) || null,
-        production_region: document.getElementById('copyright-production-region').value.trim() || null,
-        language: document.getElementById('copyright-language').value.trim() || null,
-        language_henan: document.getElementById('copyright-language').value.trim() || null,  // 暂时用 language 字段
-        country: document.getElementById('copyright-country').value.trim() || null,
+        
+        // 版权信息
+        authorization_region: document.getElementById('copyright-authorization-region').value.trim() || null,
+        authorization_platform: document.getElementById('copyright-authorization-platform').value.trim() || null,
+        cooperation_mode: document.getElementById('copyright-cooperation-mode').value.trim() || null,
+        copyright_start_date: document.getElementById('copyright-start-date').value.trim() || null,
+        copyright_end_date: document.getElementById('copyright-end-date').value.trim() || null,
+        license_number: document.getElementById('copyright-license-number').value.trim() || null,
+        exclusive_status: document.getElementById('copyright-exclusive').value.trim() || null,
+        rating: parseFloat(document.getElementById('copyright-rating').value) || null,
+        
+        // 主创信息
         director: document.getElementById('copyright-director').value.trim() || null,
         screenwriter: document.getElementById('copyright-screenwriter').value.trim() || null,
-        rating: parseFloat(document.getElementById('copyright-rating').value) || null,
-        exclusive_status: document.getElementById('copyright-exclusive').value.trim() || null,
+        author: document.getElementById('copyright-author').value.trim() || null,
         cast_members: document.getElementById('copyright-cast').value.trim() || null,
-        recommendation: null,  // 暂时为空
-        synopsis: document.getElementById('copyright-synopsis').value.trim() || null,
-        keywords: null  // 暂时为空
+        
+        // 描述信息
+        keywords: document.getElementById('copyright-keywords').value.trim() || null,
+        recommendation: document.getElementById('copyright-recommendation').value.trim() || null,
+        synopsis: document.getElementById('copyright-synopsis').value.trim() || null
     };
     
     try {
@@ -2239,4 +2279,204 @@ function startEpisodeGenerationPolling() {
 // 加载版权方数据（用于导入完成后刷新）
 function loadCopyrightContent() {
     loadCopyrightList(1);
+}
+// ============================================================
+// 扫描结果导入功能
+// ============================================================
+
+// 扫描导入状态
+let scanImportState = {
+    file: null,
+    taskId: null,
+    totalRows: 0
+};
+
+// 打开扫描结果导入模态框
+function openScanImportModal() {
+    document.getElementById('scan-import-modal').classList.remove('hidden');
+    resetScanImportState();
+    loadScanStats();
+}
+
+// 关闭扫描结果导入模态框
+function closeScanImportModal() {
+    document.getElementById('scan-import-modal').classList.add('hidden');
+    resetScanImportState();
+}
+
+// 重置扫描导入状态
+function resetScanImportState() {
+    scanImportState = { file: null, taskId: null, totalRows: 0 };
+    document.getElementById('scan-file-input').value = '';
+    document.getElementById('scan-drop-zone').classList.remove('hidden');
+    document.getElementById('scan-file-selected').classList.add('hidden');
+    document.getElementById('scan-mode-selection').classList.add('hidden');
+    document.getElementById('scan-import-result').classList.add('hidden');
+    document.getElementById('scan-import-btn').disabled = true;
+    document.getElementById('scan-import-btn').innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" x2="12" y1="3" y2="15"/>
+        </svg>
+        开始导入
+    `;
+}
+
+// 加载扫描结果统计
+async function loadScanStats() {
+    try {
+        const response = await fetch(`${API_BASE}/scan-result/stats`);
+        const result = await response.json();
+        if (result.code === 200) {
+            document.getElementById('scan-total-count').textContent = result.data.total.toLocaleString();
+        }
+    } catch (error) {
+        console.error('加载扫描统计失败:', error);
+        document.getElementById('scan-total-count').textContent = '-';
+    }
+}
+
+// 拖拽处理
+function handleScanDragOver(event) {
+    event.preventDefault();
+    event.currentTarget.classList.add('border-orange-400', 'bg-orange-50');
+}
+
+function handleScanDragLeave(event) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('border-orange-400', 'bg-orange-50');
+}
+
+function handleScanDrop(event) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('border-orange-400', 'bg-orange-50');
+    
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+        handleScanFile(files[0]);
+    }
+}
+
+// 文件选择处理
+function handleScanFileSelect(event) {
+    const files = event.target.files;
+    if (files.length > 0) {
+        handleScanFile(files[0]);
+    }
+}
+
+// 处理选中的文件
+function handleScanFile(file) {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+        showToast('请选择 CSV 文件', 'error');
+        return;
+    }
+    
+    scanImportState.file = file;
+    
+    // 显示文件信息
+    document.getElementById('scan-drop-zone').classList.add('hidden');
+    document.getElementById('scan-file-selected').classList.remove('hidden');
+    document.getElementById('scan-mode-selection').classList.remove('hidden');
+    document.getElementById('scan-file-name').textContent = file.name;
+    document.getElementById('scan-file-info').textContent = `大小: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+    document.getElementById('scan-import-btn').disabled = false;
+}
+
+// 清除选中的文件
+function clearScanFile() {
+    resetScanImportState();
+}
+
+// 执行扫描结果导入
+async function executeScanImport() {
+    if (!scanImportState.file) {
+        showToast('请先选择文件', 'error');
+        return;
+    }
+    
+    const importBtn = document.getElementById('scan-import-btn');
+    importBtn.disabled = true;
+    importBtn.innerHTML = `
+        <svg class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+        </svg>
+        上传中...
+    `;
+    
+    try {
+        // 1. 上传文件
+        const formData = new FormData();
+        formData.append('file', scanImportState.file);
+        
+        const uploadResponse = await fetch(`${API_BASE}/scan-result/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        const uploadResult = await uploadResponse.json();
+        
+        if (uploadResult.code !== 200) {
+            throw new Error(uploadResult.detail || uploadResult.message || '上传失败');
+        }
+        
+        scanImportState.taskId = uploadResult.data.task_id;
+        scanImportState.totalRows = uploadResult.data.total_rows;
+        
+        // 更新文件信息
+        document.getElementById('scan-file-info').textContent = `共 ${scanImportState.totalRows.toLocaleString()} 条记录`;
+        
+        // 2. 执行导入
+        importBtn.innerHTML = `
+            <svg class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+                <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/>
+            </svg>
+            导入中...
+        `;
+        
+        const mode = document.querySelector('input[name="scan-import-mode"]:checked').value;
+        
+        const importResponse = await fetch(`${API_BASE}/scan-result/import/${scanImportState.taskId}?mode=${mode}`, {
+            method: 'POST'
+        });
+        const importResult = await importResponse.json();
+        
+        if (importResult.code !== 200) {
+            throw new Error(importResult.detail || importResult.message || '导入失败');
+        }
+        
+        // 3. 显示结果
+        document.getElementById('scan-import-result').classList.remove('hidden');
+        document.getElementById('scan-result-total').textContent = importResult.data.total.toLocaleString();
+        document.getElementById('scan-result-success').textContent = importResult.data.success_count.toLocaleString();
+        document.getElementById('scan-result-skipped').textContent = importResult.data.skipped_count.toLocaleString();
+        document.getElementById('scan-result-failed').textContent = importResult.data.failed_count.toLocaleString();
+        
+        // 刷新统计
+        loadScanStats();
+        
+        showToast(`导入完成：成功 ${importResult.data.success_count} 条，跳过 ${importResult.data.skipped_count} 条`, 'success');
+        
+        importBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            导入完成
+        `;
+        
+    } catch (error) {
+        console.error('导入失败:', error);
+        showToast(error.message || '导入失败', 'error');
+        importBtn.disabled = false;
+        importBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" x2="12" y1="3" y2="15"/>
+            </svg>
+            重新导入
+        `;
+    }
 }

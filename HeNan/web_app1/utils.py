@@ -110,7 +110,8 @@ def format_duration(seconds, format_type='HHMMSS00'):
         return 0 if format_type == 'minutes' else '00:00:00' if format_type == 'HH:MM:SS' else '00000000'
     
     if format_type == 'minutes':
-        return total_seconds // 60
+        # 使用四舍五入，299秒 -> 5分钟
+        return round(total_seconds / 60)
     
     hours = total_seconds // 3600
     minutes = (total_seconds % 3600) // 60
@@ -286,15 +287,20 @@ def build_drama_props(data, media_name, customer_code, scan_results=None, pinyin
         elif c.get('type') == 'total_duration_seconds':
             props[col] = int(data.get('total_duration') or 0)
         elif c.get('type') == 'total_episodes_duration_seconds':
-            # 计算所有子集时长之和（秒）
+            # 计算所有子集时长之和（秒），返回四舍五入的分钟数
             total_dur = 0
             total_eps = int(data.get('episode_count') or 0)
             if scan_results and total_eps > 0:
                 for ep in range(1, total_eps + 1):
-                    ep_name = f"{media_name}第{ep:02d}集"
-                    match = scan_results.get(ep_name, {})
+                    # 尝试多种格式匹配
+                    match = scan_results.get(f"{media_name}第{ep:02d}集", {})
+                    if not match:
+                        match = scan_results.get(f"{media_name}{ep:02d}", {})
+                    if not match:
+                        match = scan_results.get(f"{media_name}{ep}", {})
                     total_dur += match.get('duration', 0)
-            props[col] = total_dur
+            # 使用四舍五入，299秒 -> 5分钟
+            props[col] = round(total_dur / 60) if total_dur else 0
         elif c.get('type') == 'pinyin_abbr':
             props[col] = abbr
         elif c.get('type') == 'genre':
@@ -316,10 +322,28 @@ def build_episodes(drama_id, media_name, total_episodes, data, customer_code, sc
     result = []
     for ep in range(1, total_episodes + 1):
         ep_name = f"{media_name}第{ep:02d}集"
+        
+        # 尝试多种格式匹配扫描结果
+        # 格式1: "媒体名称第01集" (代码标准格式)
+        # 格式2: "媒体名称01" (扫描工具格式，无"第"和"集")
+        # 格式3: "媒体名称1" (单数字格式)
+        # 格式4: "xzpq01" (拼音缩写+集数)
+        # 格式5: "xzpq1" (拼音缩写+单数字)
         match = scan_results.get(ep_name, {})
+        if not match:
+            match = scan_results.get(f"{media_name}{ep:02d}", {})
+        if not match:
+            match = scan_results.get(f"{media_name}{ep}", {})
+        # 拼音匹配
+        if not match and abbr:
+            match = scan_results.get(f"{abbr}{ep:02d}", {})
+        if not match and abbr:
+            match = scan_results.get(f"{abbr}{ep}", {})
+        
         dur = match.get('duration', 0)
         dur_formatted = match.get('duration_formatted', '00000000')
         size = match.get('size', 0)
+        md5_value = match.get('md5', '')
         
         props = {}
         for c in config.get('episode_columns', []):
@@ -343,7 +367,7 @@ def build_episodes(drama_id, media_name, total_episodes, data, customer_code, sc
             elif c.get('type') == 'file_size':
                 props[col] = size
             elif c.get('type') == 'md5':
-                props[col] = ''
+                props[col] = md5_value
             elif c.get('type') == 'episode_name_format':
                 props[col] = c.get('format', '{drama_name}第{ep}集').format(drama_name=media_name, ep=ep)
         

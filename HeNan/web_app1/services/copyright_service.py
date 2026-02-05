@@ -2,6 +2,7 @@
 版权数据服务层
 提供版权内容的业务逻辑处理、剧头/子集生成等核心功能
 """
+import os
 import json
 from decimal import Decimal
 from typing import Optional, Dict, Any, List
@@ -269,14 +270,16 @@ class CopyrightDramaService:
         content_type = data.get('category_level1_henan') or data.get('category_level1') or ''
         content_dir = get_content_dir(content_type, customer_code)
         
-        # 批量查询扫描结果
+        # 批量查询扫描结果（使用 file_name 模糊匹配）
         episode_names = [f"{media_name}第{ep:02d}集" for ep in range(start_episode, end_episode + 1)]
-        placeholders = ','.join(['%s'] * len(episode_names))
+        like_conditions = ' OR '.join(['file_name LIKE %s'] * len(episode_names))
+        like_values = [f"{name}%" for name in episode_names]
         cursor.execute(
-            f"SELECT standard_episode_name, duration_formatted, size_bytes FROM video_scan_result WHERE standard_episode_name IN ({placeholders})",
-            episode_names
+            f"SELECT file_name, duration_formatted, size_bytes, md5 FROM video_scan_result WHERE {like_conditions}",
+            like_values
         )
-        scan_results = {row['standard_episode_name']: row for row in cursor.fetchall()}
+        # 从 file_name 去掉扩展名作为 key
+        scan_results = {os.path.splitext(row['file_name'])[0]: row for row in cursor.fetchall()}
         
         # 构建批量插入数据
         insert_data = []
@@ -286,6 +289,7 @@ class CopyrightDramaService:
             match = scan_results.get(episode_name)
             duration = match['duration_formatted'] if match and match.get('duration_formatted') else 0
             file_size = int(match['size_bytes']) if match and match.get('size_bytes') else 0
+            md5_value = match['md5'] if match and match.get('md5') else ''
             
             episode_props = {}
             for col_config in config.get('episode_columns', []):
@@ -311,7 +315,7 @@ class CopyrightDramaService:
                 elif col_config.get('type') == 'file_size':
                     episode_props[col_name] = file_size
                 elif col_config.get('type') == 'md5':
-                    episode_props[col_name] = ''
+                    episode_props[col_name] = md5_value
                 elif col_config.get('type') == 'episode_name_format':
                     fmt = col_config.get('format', '{drama_name}第{ep}集')
                     episode_props[col_name] = fmt.format(drama_name=media_name, ep=episode_num)

@@ -345,6 +345,9 @@ def create_copyright(data: Dict[str, Any] = Body(...)):
             copyright_id = cursor.lastrowid
             conn.commit()
             
+            # 清除版权列表缓存
+            cache.invalidate_prefix(CacheKeys.COPYRIGHT_LIST)
+            
             logger.info(f"版权数据创建成功: id={copyright_id}, name={media_name}")
             
             elapsed_time = time.time() - start_time
@@ -436,6 +439,10 @@ def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
             )
             
             conn.commit()
+            
+            # 清除版权列表缓存
+            cache.invalidate_prefix(CacheKeys.COPYRIGHT_LIST)
+            
             logger.info(f"版权数据更新成功: id={item_id}, name={media_name}")
             
             elapsed_time = time.time() - start_time
@@ -489,6 +496,9 @@ def delete_copyright(item_id: int):
             # 删除版权数据
             cursor.execute("DELETE FROM copyright_content WHERE id = %s", (item_id,))
             conn.commit()
+            
+            # 清除版权列表缓存
+            cache.invalidate_prefix(CacheKeys.COPYRIGHT_LIST)
             
             logger.info(f"版权数据删除成功: id={item_id}, name={media_name}")
             
@@ -624,6 +634,10 @@ def _sync_import_task(task_id: str):
     try:
         with get_db() as conn:
             import_service.execute_import_sync(task, conn)
+        
+        # 导入完成后清除版权列表缓存
+        cache.invalidate_prefix(CacheKeys.COPYRIGHT_LIST)
+        logger.info(f"导入任务完成，已清除版权列表缓存: task_id={task_id}")
     except Exception as e:
         task.status = ImportStatus.FAILED
         task.errors.append({"message": f"导入失败: {str(e)}"})

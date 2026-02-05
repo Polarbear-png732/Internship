@@ -325,7 +325,7 @@ CUSTOMER_CONFIGS = {
         'episode_columns': [
             {'col': '视频部名称', 'type': 'episode_name_format', 'format': '{drama_name} 第{ep:02d}集'},
             {'col': '三级页面显示', 'type': 'episode_name_format', 'format': ' 第{ep:02d}集'},
-            {'col': '时长（秒）', 'type': 'duration_seconds'},
+            {'col': '时长（秒）', 'value': ''},  # 新疆不需要匹配时长
         ],
         
         'image_url': {},

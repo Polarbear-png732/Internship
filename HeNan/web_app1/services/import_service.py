@@ -157,22 +157,30 @@ class ExcelImportService:
         # 分批查询，每批100个媒体名称，避免SQL过长
         for i in range(0, len(media_names), 100):
             batch_names = media_names[i:i+100]
-            # 使用LIKE匹配，每个媒体名称可能有多集
-            like_conditions = ' OR '.join(['standard_episode_name LIKE %s'] * len(batch_names))
+            # 使用LIKE匹配 file_name，每个媒体名称可能有多集
+            like_conditions = ' OR '.join(['file_name LIKE %s'] * len(batch_names))
             like_values = [f"{name}%" for name in batch_names]
             
             cursor.execute(
-                f"SELECT standard_episode_name, duration_seconds, duration_formatted, size_bytes FROM video_scan_result WHERE {like_conditions}",
+                f"SELECT file_name, pinyin_abbr, duration_seconds, duration_formatted, size_bytes, md5 FROM video_scan_result WHERE {like_conditions}",
                 like_values
             )
             
             for r in cursor.fetchall():
-                if r['standard_episode_name']:
-                    result[r['standard_episode_name']] = {
+                if r['file_name']:
+                    # 从 file_name 中去掉扩展名，得到标准集名用于匹配
+                    key = os.path.splitext(r['file_name'])[0]
+                    scan_data = {
                         'duration': int(r['duration_seconds'] or 0),
                         'duration_formatted': r['duration_formatted'] or '00000000',
-                        'size': int(r['size_bytes'] or 0)
+                        'size': int(r['size_bytes'] or 0),
+                        'md5': r['md5'] or ''
                     }
+                    result[key] = scan_data
+                    
+                    # 同时用 pinyin_abbr 建立索引（如 "xzpq01"）
+                    if r['pinyin_abbr']:
+                        result[r['pinyin_abbr']] = scan_data
         
         return result
 
@@ -242,12 +250,8 @@ class ExcelImportService:
                     task.processed_rows = batch_end
                     continue
                 
-                # 批量插入剧头，使用MAX(id)计算新ID（比LAST_INSERT_ID更可靠）
+                # 批量插入剧头，使用 LAST_INSERT_ID 获取实际的第一个ID
                 if drama_batch:
-                    # 先获取当前最大ID
-                    cursor.execute("SELECT COALESCE(MAX(drama_id), 0) as max_id FROM drama_main")
-                    max_id = cursor.fetchone()['max_id']
-                    
                     # 按插入顺序排序，确保ID计算正确
                     insert_data = [(d[0], d[1], d[2]) for d in drama_batch]
                     cursor.executemany(
@@ -255,8 +259,9 @@ class ExcelImportService:
                         insert_data
                     )
                     
-                    # 从 max_id + 1 开始计算每条记录的ID
-                    first_id = max_id + 1
+                    # 使用 LAST_INSERT_ID 获取批量插入的第一个ID（MySQL特性）
+                    cursor.execute("SELECT LAST_INSERT_ID() as first_id")
+                    first_id = cursor.fetchone()['first_id']
                     
                     # 根据插入顺序计算每条记录的ID
                     drama_id_map = {}  # {media_name: {customer_code: drama_id}}
@@ -340,18 +345,42 @@ class ExcelImportService:
             with get_db() as conn:
                 cursor = conn.cursor(pymysql.cursors.DictCursor)
                 
+                # 先验证哪些 drama_id 实际存在（防止删除后重新导入时的外键约束错误）
+                all_drama_ids = [info['drama_id'] for info in task.drama_ids_for_episodes]
+                if not all_drama_ids:
+                    task.episode_generation_status = "completed"
+                    task.episode_generation_progress = 100
+                    return
+                
+                # 批量查询存在的 drama_id
+                placeholders = ','.join(['%s'] * len(all_drama_ids))
+                cursor.execute(f"SELECT drama_id FROM drama_main WHERE drama_id IN ({placeholders})", all_drama_ids)
+                existing_drama_ids = {row['drama_id'] for row in cursor.fetchall()}
+                
+                # 过滤出有效的任务
+                valid_tasks = [info for info in task.drama_ids_for_episodes if info['drama_id'] in existing_drama_ids]
+                skipped_count = len(task.drama_ids_for_episodes) - len(valid_tasks)
+                
+                if skipped_count > 0:
+                    print(f"[WARN] 子集生成：跳过 {skipped_count} 个已删除的剧头")
+                
+                if not valid_tasks:
+                    task.episode_generation_status = "completed"
+                    task.episode_generation_progress = 100
+                    return
+                
                 # 收集所有需要的媒体名称，按需加载扫描结果
-                media_names = list(set(info['media_name'] for info in task.drama_ids_for_episodes))
+                media_names = list(set(info['media_name'] for info in valid_tasks))
                 scan_results = self._preload_scans(cursor, media_names)
                 
                 # 批量预计算拼音缩写
                 pinyin_cache = {name: get_pinyin_abbr(name) for name in media_names}
                 
-                total_dramas = len(task.drama_ids_for_episodes)
+                total_dramas = len(valid_tasks)
                 episode_batch = []
                 EPISODE_BATCH_SIZE = 5000  # 子集批量插入大小
                 
-                for idx, info in enumerate(task.drama_ids_for_episodes):
+                for idx, info in enumerate(valid_tasks):
                     drama_id = info['drama_id']
                     media_name = info['media_name']
                     episode_count = info['episode_count']
@@ -382,6 +411,10 @@ class ExcelImportService:
                     )
                     conn.commit()
                 
+                # 更新剧头的时长相关字段（需要依赖 scan_results）
+                self._update_drama_duration_fields(cursor, valid_tasks, scan_results, pinyin_cache)
+                conn.commit()
+                
                 task.episode_generation_status = "completed"
                 task.episode_generation_progress = 100
                 
@@ -390,4 +423,79 @@ class ExcelImportService:
             error_detail = f"子集生成失败: {str(e)}\n{traceback.format_exc()}"
             task.errors.append({"message": error_detail})
             print(f"[ERROR] 子集生成失败: {error_detail}")
+    
+    def _update_drama_duration_fields(self, cursor, valid_tasks, scan_results, pinyin_cache):
+        """更新剧头的时长相关字段（子集生成后调用）"""
+        # 按 drama_id 分组，收集每个剧头需要更新的信息
+        drama_updates = {}  # {drama_id: {'media_name': ..., 'episode_count': ..., 'customer_code': ...}}
+        
+        for info in valid_tasks:
+            drama_id = info['drama_id']
+            if drama_id not in drama_updates:
+                drama_updates[drama_id] = {
+                    'media_name': info['media_name'],
+                    'episode_count': info['episode_count'],
+                    'customer_code': info['customer_code']
+                }
+        
+        if not drama_updates:
+            return
+        
+        # 批量获取剧头的 dynamic_properties
+        drama_ids = list(drama_updates.keys())
+        placeholders = ','.join(['%s'] * len(drama_ids))
+        cursor.execute(
+            f"SELECT drama_id, dynamic_properties FROM drama_main WHERE drama_id IN ({placeholders})",
+            drama_ids
+        )
+        
+        update_batch = []
+        for row in cursor.fetchall():
+            drama_id = row['drama_id']
+            info = drama_updates.get(drama_id)
+            if not info:
+                continue
+            
+            try:
+                props = json.loads(row['dynamic_properties'] or '{}')
+            except:
+                props = {}
+            
+            media_name = info['media_name']
+            episode_count = info['episode_count']
+            customer_code = info['customer_code']
+            
+            # 根据客户配置，更新需要 scan_results 的字段
+            config = CUSTOMER_CONFIGS.get(customer_code, {})
+            updated = False
+            
+            for c in config.get('drama_columns', []):
+                col = c['col']
+                col_type = c.get('type')
+                
+                if col_type == 'total_episodes_duration_seconds':
+                    # 计算所有子集时长之和（秒），返回四舍五入的分钟数
+                    total_dur = 0
+                    if episode_count > 0:
+                        for ep in range(1, episode_count + 1):
+                            match = scan_results.get(f"{media_name}第{ep:02d}集", {})
+                            if not match:
+                                match = scan_results.get(f"{media_name}{ep:02d}", {})
+                            if not match:
+                                match = scan_results.get(f"{media_name}{ep}", {})
+                            total_dur += match.get('duration', 0)
+                    # 使用四舍五入，299秒 -> 5分钟
+                    props[col] = round(total_dur / 60) if total_dur else 0
+                    updated = True
+            
+            if updated:
+                update_batch.append((json.dumps(props, ensure_ascii=False), drama_id))
+        
+        # 批量更新
+        if update_batch:
+            cursor.executemany(
+                "UPDATE drama_main SET dynamic_properties = %s WHERE drama_id = %s",
+                update_batch
+            )
+            print(f"[INFO] 更新了 {len(update_batch)} 个剧头的时长字段")
 

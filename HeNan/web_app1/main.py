@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pathlib import Path
 
-from routers import customers, dramas, episodes, copyright
+from routers import customers, dramas, episodes, copyright, scan_result
 from logging_config import logger
 
 # ============================================================
@@ -105,6 +105,7 @@ app.include_router(customers.router)
 app.include_router(dramas.router)
 app.include_router(episodes.router)
 app.include_router(copyright.router)
+app.include_router(scan_result.router)
 
 
 @app.get("/")

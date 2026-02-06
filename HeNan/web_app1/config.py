@@ -300,7 +300,7 @@ CUSTOMER_CONFIGS = {
             'channel_bw': 'ftp://ftpmediazjyd:rD2q0y1M5eI@36.133.168.235:2121/picture/zjyd/{abbr}10.jpg',
             'channel_name': 'ftp://ftpmediazjyd:rD2q0y1M5eI@36.133.168.235:2121/picture/zjyd/{abbr}12.jpg',
         },
-        'media_url_template': 'ftp://ftpmedia:rD2q0y!M5eI2@36.133.168.235:2121/media/zjyd/{dir}/{abbr}/{abbr}{ep:03d}.ts',
+        'media_url_template': 'ftp://ftpmedia:rD2q0y!M5eI2@36.133.168.235:2121/media/zjyd/{dir}/{abbr}/{abbr}{ep:02d}.ts',
         
         'content_dir_map': {'电竞': 'dianjing', '教育': 'jiaoyu', '少儿': 'shaoer', '_default': 'shaoer'},
         'product_category_map': {'教育': 1, '电竞': 2, '少儿': 3, '_default': 3},

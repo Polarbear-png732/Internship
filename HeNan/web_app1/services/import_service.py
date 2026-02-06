@@ -18,6 +18,7 @@ from config import CUSTOMER_CONFIGS, get_enabled_customers
 from utils import (
     get_pinyin_abbr, get_image_url, get_product_category, format_datetime,
     clean_numeric, clean_string, build_drama_props, build_episodes,
+    extract_episode_number, find_scan_match,
     COLUMN_MAPPING, NUMERIC_FIELDS, INSERT_FIELDS
 )
 
@@ -152,18 +153,37 @@ class ExcelImportService:
             # 如果没有指定媒体名称，返回空字典（兼容旧调用）
             return {}
         
-        # 构建LIKE查询条件，匹配 "媒体名称第XX集" 格式
+        # 构建查询条件，匹配文件名与文件夹命名
         result = {}
+        folder_index = {}
         # 分批查询，每批100个媒体名称，避免SQL过长
         for i in range(0, len(media_names), 100):
             batch_names = media_names[i:i+100]
+            batch_abbrs = [get_pinyin_abbr(name) for name in batch_names]
+            batch_abbrs = [abbr for abbr in batch_abbrs if abbr]
+
+            conditions = []
+            values = []
             # 使用LIKE匹配 file_name，每个媒体名称可能有多集
-            like_conditions = ' OR '.join(['file_name LIKE %s'] * len(batch_names))
-            like_values = [f"{name}%" for name in batch_names]
+            if batch_names:
+                like_conditions = ' OR '.join(['file_name LIKE %s'] * len(batch_names))
+                conditions.append(f"({like_conditions})")
+                values.extend([f"{name}%" for name in batch_names])
+                # folder 直接命名为剧集名称
+                in_names = ','.join(['%s'] * len(batch_names))
+                conditions.append(f"source_file IN ({in_names})")
+                values.extend(batch_names)
+            # folder 命名为拼音缩写
+            if batch_abbrs:
+                in_abbrs = ','.join(['%s'] * len(batch_abbrs))
+                conditions.append(f"source_file IN ({in_abbrs})")
+                values.extend(batch_abbrs)
+
+            where_sql = ' OR '.join(conditions) if conditions else '1=0'
             
             cursor.execute(
-                f"SELECT file_name, pinyin_abbr, duration_seconds, duration_formatted, size_bytes, md5 FROM video_scan_result WHERE {like_conditions}",
-                like_values
+                f"SELECT file_name, pinyin_abbr, source_file, duration_seconds, duration_formatted, size_bytes, md5 FROM video_scan_result WHERE {where_sql}",
+                values
             )
             
             for r in cursor.fetchall():
@@ -181,6 +201,16 @@ class ExcelImportService:
                     # 同时用 pinyin_abbr 建立索引（如 "xzpq01"）
                     if r['pinyin_abbr']:
                         result[r['pinyin_abbr']] = scan_data
+
+                    # 按文件夹建立索引（文件夹名可能是剧集名或拼音缩写）
+                    source_file = r.get('source_file') or ''
+                    if source_file:
+                        ep_num = extract_episode_number(key)
+                        if ep_num:
+                            folder_index.setdefault(source_file, {})[ep_num] = scan_data
+
+        if folder_index:
+            result['_folder_index'] = folder_index
         
         return result
 
@@ -476,13 +506,10 @@ class ExcelImportService:
                 if col_type == 'total_episodes_duration_seconds':
                     # 计算所有子集时长之和（秒），返回四舍五入的分钟数
                     total_dur = 0
+                    abbr = pinyin_cache.get(media_name) if pinyin_cache else get_pinyin_abbr(media_name)
                     if episode_count > 0:
                         for ep in range(1, episode_count + 1):
-                            match = scan_results.get(f"{media_name}第{ep:02d}集", {})
-                            if not match:
-                                match = scan_results.get(f"{media_name}{ep:02d}", {})
-                            if not match:
-                                match = scan_results.get(f"{media_name}{ep}", {})
+                            match = find_scan_match(scan_results, media_name, abbr, ep)
                             total_dur += match.get('duration', 0)
                     # 使用四舍五入，299秒 -> 5分钟
                     props[col] = round(total_dur / 60) if total_dur else 0

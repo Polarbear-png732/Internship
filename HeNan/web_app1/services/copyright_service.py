@@ -11,7 +11,8 @@ import pymysql
 from database import get_db
 from utils import (
     get_pinyin_abbr, get_content_dir, get_product_category,
-    get_image_url, get_media_url, format_duration, format_datetime, get_genre
+    get_image_url, get_media_url, format_duration, format_datetime, get_genre,
+    extract_episode_number, find_scan_match
 )
 from config import CUSTOMER_CONFIGS, get_enabled_customers
 
@@ -274,19 +275,50 @@ class CopyrightDramaService:
         episode_names = [f"{media_name}第{ep:02d}集" for ep in range(start_episode, end_episode + 1)]
         like_conditions = ' OR '.join(['file_name LIKE %s'] * len(episode_names))
         like_values = [f"{name}%" for name in episode_names]
+        where_parts = [f"({like_conditions})"] if like_conditions else []
+        where_values = list(like_values)
+        # 兼容文件夹按剧集名或拼音缩写命名
+        folder_values = [media_name]
+        if abbr:
+            folder_values.append(abbr)
+        if folder_values:
+            in_folders = ','.join(['%s'] * len(folder_values))
+            where_parts.append(f"source_file IN ({in_folders})")
+            where_values.extend(folder_values)
+        where_sql = ' OR '.join(where_parts) if where_parts else '1=0'
         cursor.execute(
-            f"SELECT file_name, duration_formatted, size_bytes, md5 FROM video_scan_result WHERE {like_conditions}",
-            like_values
+            f"SELECT file_name, source_file, pinyin_abbr, duration_formatted, size_bytes, md5 FROM video_scan_result WHERE {where_sql}",
+            where_values
         )
-        # 从 file_name 去掉扩展名作为 key
-        scan_results = {os.path.splitext(row['file_name'])[0]: row for row in cursor.fetchall()}
+        # 构建多索引映射
+        scan_results = {}
+        folder_index = {}
+        for row in cursor.fetchall():
+            key = os.path.splitext(row['file_name'])[0] if row.get('file_name') else ''
+            if not key:
+                continue
+            scan_data = {
+                'duration_formatted': row.get('duration_formatted') or '00000000',
+                'size_bytes': int(row.get('size_bytes') or 0),
+                'md5': row.get('md5') or ''
+            }
+            scan_results[key] = scan_data
+            if row.get('pinyin_abbr'):
+                scan_results[row['pinyin_abbr']] = scan_data
+            source_file = row.get('source_file') or ''
+            if source_file:
+                ep_num = extract_episode_number(key)
+                if ep_num:
+                    folder_index.setdefault(source_file, {})[ep_num] = scan_data
+        if folder_index:
+            scan_results['_folder_index'] = folder_index
         
         # 构建批量插入数据
         insert_data = []
         for episode_num in range(start_episode, end_episode + 1):
             episode_name = f"{media_name}第{episode_num:02d}集"
             
-            match = scan_results.get(episode_name)
+            match = find_scan_match(scan_results, media_name, abbr, episode_num)
             duration = match['duration_formatted'] if match and match.get('duration_formatted') else 0
             file_size = int(match['size_bytes']) if match and match.get('size_bytes') else 0
             md5_value = match['md5'] if match and match.get('md5') else ''

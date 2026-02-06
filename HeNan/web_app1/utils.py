@@ -3,6 +3,7 @@
 包含数据处理、格式化、URL生成等公共函数
 """
 import json
+import os
 import re
 import pandas as pd
 from functools import lru_cache
@@ -228,6 +229,49 @@ def clean_string(value, max_len=500):
     return s[:max_len] if len(s) > max_len else s
 
 
+def extract_episode_number(name: str):
+    """从文件名或集名中提取集数"""
+    if not name:
+        return None
+    base = os.path.splitext(str(name))[0]
+    match = re.search(r'第\s*(\d{1,3})\s*集', base)
+    if match:
+        return int(match.group(1))
+    match = re.search(r'(\d{1,3})$', base)
+    if match:
+        return int(match.group(1))
+    match = re.search(r'(\d{1,3})(?!.*\d)', base)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def find_scan_match(scan_results, media_name, abbr, episode_num):
+    """按优先级匹配扫描结果，支持文件名与文件夹命名"""
+    if not scan_results or not media_name or not episode_num:
+        return {}
+
+    match = scan_results.get(f"{media_name}第{episode_num:02d}集", {})
+    if not match:
+        match = scan_results.get(f"{media_name}{episode_num:02d}", {})
+    if not match:
+        match = scan_results.get(f"{media_name}{episode_num}", {})
+    if not match and abbr:
+        match = scan_results.get(f"{abbr}{episode_num:02d}", {})
+    if not match and abbr:
+        match = scan_results.get(f"{abbr}{episode_num}", {})
+
+    if not match:
+        folder_index = scan_results.get('_folder_index', {})
+        folder_match = folder_index.get(media_name, {})
+        match = folder_match.get(episode_num, {}) if folder_match else {}
+        if not match and abbr:
+            folder_match = folder_index.get(abbr, {})
+            match = folder_match.get(episode_num, {}) if folder_match else {}
+
+    return match or {}
+
+
 
 # ============================================================
 # 数据构建函数（剧头、子集）
@@ -292,12 +336,7 @@ def build_drama_props(data, media_name, customer_code, scan_results=None, pinyin
             total_eps = int(data.get('episode_count') or 0)
             if scan_results and total_eps > 0:
                 for ep in range(1, total_eps + 1):
-                    # 尝试多种格式匹配
-                    match = scan_results.get(f"{media_name}第{ep:02d}集", {})
-                    if not match:
-                        match = scan_results.get(f"{media_name}{ep:02d}", {})
-                    if not match:
-                        match = scan_results.get(f"{media_name}{ep}", {})
+                    match = find_scan_match(scan_results, media_name, abbr, ep)
                     total_dur += match.get('duration', 0)
             # 使用四舍五入，299秒 -> 5分钟
             props[col] = round(total_dur / 60) if total_dur else 0
@@ -323,22 +362,7 @@ def build_episodes(drama_id, media_name, total_episodes, data, customer_code, sc
     for ep in range(1, total_episodes + 1):
         ep_name = f"{media_name}第{ep:02d}集"
         
-        # 尝试多种格式匹配扫描结果
-        # 格式1: "媒体名称第01集" (代码标准格式)
-        # 格式2: "媒体名称01" (扫描工具格式，无"第"和"集")
-        # 格式3: "媒体名称1" (单数字格式)
-        # 格式4: "xzpq01" (拼音缩写+集数)
-        # 格式5: "xzpq1" (拼音缩写+单数字)
-        match = scan_results.get(ep_name, {})
-        if not match:
-            match = scan_results.get(f"{media_name}{ep:02d}", {})
-        if not match:
-            match = scan_results.get(f"{media_name}{ep}", {})
-        # 拼音匹配
-        if not match and abbr:
-            match = scan_results.get(f"{abbr}{ep:02d}", {})
-        if not match and abbr:
-            match = scan_results.get(f"{abbr}{ep}", {})
+        match = find_scan_match(scan_results, media_name, abbr, ep)
         
         dur = match.get('duration', 0)
         dur_formatted = match.get('duration_formatted', '00000000')

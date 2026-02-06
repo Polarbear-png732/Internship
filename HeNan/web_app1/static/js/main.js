@@ -1069,6 +1069,12 @@ function renderDramaDetailInline(header, episodes, container) {
         }
         return fieldName;
     };
+
+    const isImageField = (fieldName, displayName, value) => {
+        const label = `${fieldName || ''}${displayName || ''}`;
+        const lowerValue = String(value || '').toLowerCase();
+        return /图|海报|图片/.test(label) || /\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(lowerValue);
+    };
     
     // 根据客户类型获取正确的ID和名称字段（用于显示）
     let idField, nameField;
@@ -1120,12 +1126,18 @@ function renderDramaDetailInline(header, episodes, container) {
         const value = header[fieldName] !== null && header[fieldName] !== undefined ? header[fieldName] : '-';
         // 对于URL类型的字段，显示为链接
         const isUrl = String(value).startsWith('http') || String(value).startsWith('ftp') || String(value).startsWith('/');
-        const displayValue = isUrl 
-            ? `<a href="${value}" target="_blank" class="text-blue-600 hover:underline text-xs truncate block" title="${value}">查看</a>`
-            : value;
+        const displayName = getDisplayName(fieldName);
+        const isImage = isImageField(fieldName, displayName, value);
+        let displayValue = value;
+        if (isImage && value !== '-') {
+            const shortValue = value.length > 40 ? value.substring(0, 40) + '...' : value;
+            displayValue = `<a href="${value}" target="_blank" class="text-blue-600 hover:underline text-xs truncate block" title="${value}">${shortValue}</a>`;
+        } else if (isUrl) {
+            displayValue = `<a href="${value}" target="_blank" class="text-blue-600 hover:underline text-xs truncate block" title="${value}">${value}</a>`;
+        }
         
         html += `<div class="bg-white border border-slate-200 rounded-lg p-3">
-            <div class="text-xs font-medium text-slate-500 mb-1">${getDisplayName(fieldName)}</div>
+            <div class="text-xs font-medium text-slate-500 mb-1">${displayName}</div>
             <div class="text-sm font-semibold text-slate-900 truncate" title="${value}">${displayValue}</div>
         </div>`;
     });
@@ -1159,8 +1171,11 @@ function renderDramaDetailInline(header, episodes, container) {
                 
                 // 对于URL类型的字段，显示为链接
                 const isUrl = String(value).startsWith('http') || String(value).startsWith('ftp');
-                if (isUrl) {
-                    html += `<td class="px-4 py-2"><a href="${value}" target="_blank" class="text-blue-600 hover:text-blue-700 hover:underline text-xs font-mono truncate max-w-xs inline-block" title="${value}">${value.length > 40 ? value.substring(0, 40) + '...' : value}</a></td>`;
+                const displayName = getDisplayName(colName);
+                const isImage = isImageField(colName, displayName, value);
+                if (isUrl || isImage) {
+                    const linkText = value.length > 40 ? value.substring(0, 40) + '...' : value;
+                    html += `<td class="px-4 py-2"><a href="${value}" target="_blank" class="text-blue-600 hover:text-blue-700 hover:underline text-xs font-mono truncate max-w-xs inline-block" title="${value}">${linkText}</a></td>`;
                 } else {
                     html += `<td class="px-4 py-2 text-slate-600 whitespace-nowrap">${value}</td>`;
                 }

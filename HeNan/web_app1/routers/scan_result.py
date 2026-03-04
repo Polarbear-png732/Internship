@@ -1,12 +1,13 @@
 """
 视频扫描结果管理路由模块
-提供扫描结果的CSV导入、查询、统计、清空等功能
+提供扫描结果的CSV导入、查询、统计等功能
 """
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import JSONResponse
 from typing import Optional
 import os
 import shutil
+import uuid
 
 from services.scan_result_service import scan_result_service, ScanImportStatus
 from logging_config import logger
@@ -66,7 +67,10 @@ async def upload_file(file: UploadFile = File(...)):
 
 
 @router.post("/import/{task_id}")
-async def import_data(task_id: str):
+async def import_data(
+    task_id: str,
+    mode: str = Query("incremental", description="导入模式：incremental/overwrite/fill_missing")
+):
     """
     执行增量导入
     
@@ -86,8 +90,8 @@ async def import_data(task_id: str):
     if not parse_result["success"]:
         raise HTTPException(status_code=400, detail=parse_result["error"])
     
-    # 执行增量导入
-    result = scan_result_service.import_data(task, parse_result["records"])
+    # 执行导入
+    result = scan_result_service.import_data(task, parse_result["records"], mode=mode)
     
     # 清理临时文件
     try:
@@ -104,11 +108,54 @@ async def import_data(task_id: str):
                 "success_count": result["success_count"],
                 "skipped_count": result["skipped_count"],
                 "failed_count": result["failed_count"],
+                "inserted_count": result.get("inserted_count", 0),
+                "overwritten_count": result.get("overwritten_count", 0),
+                "filled_count": result.get("filled_count", 0),
+                "mode": result.get("mode", mode),
                 "errors": result.get("errors", [])
             }
         }
     else:
         raise HTTPException(status_code=500, detail=result["error"])
+
+
+@router.post("/shandong-md5/upload")
+async def upload_shandong_md5(file: UploadFile = File(...)):
+    """上传山东切片结果txt并回填扫描表空md5"""
+    if not file.filename or not file.filename.lower().endswith('.txt'):
+        raise HTTPException(status_code=400, detail="仅支持 .txt 文件")
+
+    os.makedirs(scan_result_service.upload_dir, exist_ok=True)
+    safe_name = os.path.basename(file.filename)
+    file_path = os.path.join(
+        scan_result_service.upload_dir,
+        f"md5_{uuid.uuid4().hex}_{safe_name}"
+    )
+
+    try:
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        result = scan_result_service.import_shandong_md5_file(file_path)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error") or "处理失败")
+
+        return {
+            "code": 200,
+            "message": "山东MD5回填完成",
+            "data": result.get("data", {})
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"处理山东MD5文件失败: {e}")
+        raise HTTPException(status_code=500, detail=f"处理失败: {str(e)}")
+    finally:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
 
 
 @router.get("/list")
@@ -155,24 +202,6 @@ async def get_stats():
             "code": 200,
             "message": "success",
             "data": result["data"]
-        }
-    else:
-        raise HTTPException(status_code=500, detail=result["error"])
-
-
-@router.delete("/clear")
-async def clear_all():
-    """
-    清空所有扫描结果
-    
-    ⚠️ 警告：此操作不可恢复
-    """
-    result = scan_result_service.clear_all()
-    
-    if result["success"]:
-        return {
-            "code": 200,
-            "message": result["message"]
         }
     else:
         raise HTTPException(status_code=500, detail=result["error"])

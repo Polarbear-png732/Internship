@@ -4,6 +4,7 @@
 """
 import csv
 import os
+import re
 import uuid
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -69,6 +70,7 @@ class ScanResultImportService:
         'source_folder', 'source_file', 'file_name', 'pinyin_abbr',
         'duration_seconds', 'duration_formatted', 'size_bytes', 'md5'
     ]
+    VALID_IMPORT_MODES = {'incremental', 'overwrite', 'fill_missing'}
     
     _tasks: Dict[str, ScanImportTask] = {}
     
@@ -217,87 +219,169 @@ class ScanResultImportService:
             FROM video_scan_result
         """)
         return {row['unique_key'] for row in cursor.fetchall()}
+
+    def get_existing_records(self, cursor) -> Dict[str, Dict[str, Any]]:
+        """获取数据库中已存在记录映射（key -> row）"""
+        cursor.execute("""
+            SELECT
+                id,
+                source_folder,
+                source_file,
+                file_name,
+                pinyin_abbr,
+                duration_seconds,
+                duration_formatted,
+                size_bytes,
+                md5,
+                CONCAT(IFNULL(file_name, ''), '|', IFNULL(source_folder, '')) as unique_key
+            FROM video_scan_result
+        """)
+        return {row['unique_key']: row for row in cursor.fetchall()}
+
+    def _is_empty_field_value(self, field: str, value: Any) -> bool:
+        if value is None:
+            return True
+        if field in {'duration_seconds', 'size_bytes'}:
+            try:
+                return float(value) == 0
+            except (TypeError, ValueError):
+                return True
+        value_str = str(value).strip()
+        if value_str == '':
+            return True
+        if field == 'duration_formatted' and value_str in {'0', '00000000', '00:00:00'}:
+            return True
+        return False
     
     def import_data(self, task: ScanImportTask, records: List[Dict], mode: str = "incremental") -> Dict[str, Any]:
         """
-        导入数据到数据库（仅支持增量模式，跳过重复记录）
+        导入数据到数据库
+
+        mode:
+        - incremental: 仅插入新记录，重复键跳过
+        - overwrite: 重复键全字段覆盖更新
+        - fill_missing: 重复键仅回填空值字段
         """
+        import_mode = (mode or 'incremental').lower()
+        if import_mode not in self.VALID_IMPORT_MODES:
+            return {
+                "success": False,
+                "error": f"不支持的导入模式: {mode}"
+            }
+
         task.status = ScanImportStatus.RUNNING
         
         try:
             with get_db() as conn:
                 cursor = conn.cursor(pymysql.cursors.DictCursor)
-                
-                # 增量模式：获取已存在的记录
-                existing_keys = self.get_existing_keys(cursor)
-                logger.info(f"增量模式：数据库已有 {len(existing_keys)} 条记录")
-                
-                # 过滤新记录
-                new_records = []
+
+                existing_records = self.get_existing_records(cursor)
+                logger.info(f"导入模式: {import_mode}，数据库已有 {len(existing_records)} 条记录")
+
+                insert_rows = []
+                overwrite_rows = []
+                fill_missing_rows = []
+
+                overwrite_count = 0
+                fill_count = 0
+
                 for record in records:
                     key = f"{record.get('file_name', '')}|{record.get('source_folder', '')}"
-                    if key not in existing_keys:
-                        new_records.append(record)
+                    existing = existing_records.get(key)
+
+                    converted = {
+                        field: self._convert_value(record.get(field, ''), field)
+                        for field in self.INSERT_FIELDS
+                    }
+
+                    if not existing:
+                        insert_rows.append(tuple(converted[field] for field in self.INSERT_FIELDS))
+                        continue
+
+                    if import_mode == 'incremental':
+                        task.skipped_count += 1
+                        continue
+
+                    if import_mode == 'overwrite':
+                        changed = any(existing.get(field) != converted[field] for field in self.INSERT_FIELDS)
+                        if changed:
+                            overwrite_rows.append(tuple(converted[field] for field in self.INSERT_FIELDS) + (existing['id'],))
+                            overwrite_count += 1
+                        else:
+                            task.skipped_count += 1
+                        continue
+
+                    merged = {}
+                    changed = False
+                    for field in self.INSERT_FIELDS:
+                        old_val = existing.get(field)
+                        new_val = converted[field]
+                        if self._is_empty_field_value(field, old_val) and not self._is_empty_field_value(field, new_val):
+                            merged[field] = new_val
+                            changed = True
+                        else:
+                            merged[field] = old_val
+
+                    if changed:
+                        fill_missing_rows.append(tuple(merged[field] for field in self.INSERT_FIELDS) + (existing['id'],))
+                        fill_count += 1
                     else:
                         task.skipped_count += 1
-                
-                logger.info(f"待插入: {len(new_records)} 条，跳过重复: {task.skipped_count} 条")
-                
-                if not new_records:
-                    task.status = ScanImportStatus.COMPLETED
-                    task.completed_at = datetime.now()
-                    return {
-                        "success": True,
-                        "message": "所有记录已存在，无需导入",
-                        "total": task.total_rows,
-                        "success_count": 0,
-                        "skipped_count": task.skipped_count,
-                        "failed_count": 0
-                    }
-                
-                # 构建批量插入SQL
+
                 insert_sql = f"""
-                    INSERT INTO video_scan_result 
+                    INSERT INTO video_scan_result
                     ({', '.join(self.INSERT_FIELDS)})
                     VALUES ({', '.join(['%s'] * len(self.INSERT_FIELDS))})
                 """
-                
-                # 分批插入
-                batch_values = []
-                for i, record in enumerate(new_records):
-                    values = tuple(
-                        self._convert_value(record.get(field, ''), field)
-                        for field in self.INSERT_FIELDS
-                    )
-                    batch_values.append(values)
-                    
-                    # 达到批次大小或最后一批
-                    if len(batch_values) >= self.BATCH_SIZE or i == len(new_records) - 1:
+
+                update_sql = f"""
+                    UPDATE video_scan_result SET
+                    {', '.join([f'{field} = %s' for field in self.INSERT_FIELDS])}
+                    WHERE id = %s
+                """
+
+                def execute_batches(sql: str, rows: List[tuple], action_name: str):
+                    if not rows:
+                        return
+                    for idx in range(0, len(rows), self.BATCH_SIZE):
+                        batch = rows[idx: idx + self.BATCH_SIZE]
                         try:
-                            cursor.executemany(insert_sql, batch_values)
+                            cursor.executemany(sql, batch)
                             conn.commit()
-                            task.success_count += len(batch_values)
-                            task.processed_rows += len(batch_values)
-                            logger.info(f"已插入 {task.processed_rows}/{len(new_records)} 条")
+                            task.success_count += len(batch)
+                            task.processed_rows += len(batch)
                         except Exception as e:
-                            task.failed_count += len(batch_values)
+                            task.failed_count += len(batch)
                             task.errors.append({
-                                "batch": i // self.BATCH_SIZE + 1,
+                                "batch": idx // self.BATCH_SIZE + 1,
+                                "action": action_name,
                                 "error": str(e)
                             })
-                            logger.error(f"批次插入失败: {e}")
-                        batch_values = []
+                            logger.error(f"{action_name} 失败: {e}")
+
+                execute_batches(insert_sql, insert_rows, 'insert')
+                execute_batches(update_sql, overwrite_rows, 'overwrite')
+                execute_batches(update_sql, fill_missing_rows, 'fill_missing')
+
+                if not insert_rows and not overwrite_rows and not fill_missing_rows and task.skipped_count > 0:
+                    message = "所有记录均已存在且无需更新"
+                else:
+                    message = "导入完成"
                 
                 task.status = ScanImportStatus.COMPLETED
                 task.completed_at = datetime.now()
                 
                 return {
                     "success": True,
-                    "message": "导入完成",
+                    "message": message,
                     "total": task.total_rows,
                     "success_count": task.success_count,
                     "skipped_count": task.skipped_count,
                     "failed_count": task.failed_count,
+                    "inserted_count": len(insert_rows),
+                    "overwritten_count": overwrite_count,
+                    "filled_count": fill_count,
+                    "mode": import_mode,
                     "errors": task.errors[:10]  # 最多返回10个错误
                 }
                 
@@ -333,6 +417,149 @@ class ScanResultImportService:
                 return None
         else:
             return value
+
+    def _normalize_md5_filename(self, filename: str) -> str:
+        """标准化文件名：去扩展名、去空白、转小写"""
+        if not filename:
+            return ''
+        name = os.path.basename(str(filename).strip())
+        base = os.path.splitext(name)[0]
+        return re.sub(r'\s+', '', base).lower()
+
+    def _build_md5_match_key(self, filename: str) -> str:
+        """构建宽松匹配key，兼容01/001与空格差异"""
+        base = self._normalize_md5_filename(filename)
+        if not base:
+            return ''
+
+        m = re.match(r'^(.*?)第(\d{1,4})集$', base)
+        if m and m.group(1):
+            return f"{m.group(1)}#{int(m.group(2))}"
+
+        m = re.match(r'^(.*?)(\d{1,4})$', base)
+        if m and m.group(1):
+            return f"{m.group(1)}#{int(m.group(2))}"
+
+        return base
+
+    def _parse_shandong_md5_lines(self, content: str) -> Dict[str, str]:
+        """解析山东切片结果文本，提取 文件名 -> md5"""
+        records: Dict[str, str] = {}
+        if not content:
+            return records
+
+        for line in content.splitlines():
+            text = (line or '').strip()
+            if not text:
+                continue
+
+            md5_match = re.search(r'(?i)\b([0-9a-f]{32})\b', text)
+            if not md5_match:
+                continue
+
+            first_token = text.split()[0] if text.split() else ''
+            file_name = os.path.basename(first_token)
+
+            if not file_name or '.' not in file_name:
+                fallback = re.search(r'([^\s/\\]+\.[A-Za-z0-9]{2,8})', text)
+                file_name = fallback.group(1) if fallback else ''
+
+            if not file_name:
+                continue
+
+            records[file_name] = md5_match.group(1).lower()
+
+        return records
+
+    def import_shandong_md5_file(self, file_path: str) -> Dict[str, Any]:
+        """导入山东MD5文本并回填video_scan_result空md5字段"""
+        content = None
+        for encoding in ('utf-8-sig', 'utf-8', 'gbk'):
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    content = f.read()
+                break
+            except Exception:
+                continue
+
+        if content is None:
+            return {"success": False, "error": "文件读取失败，无法识别编码"}
+
+        parsed_map = self._parse_shandong_md5_lines(content)
+        if not parsed_map:
+            return {"success": False, "error": "未解析到有效的文件名与MD5记录"}
+
+        try:
+            with get_db() as conn:
+                cursor = conn.cursor(pymysql.cursors.DictCursor)
+                cursor.execute("""
+                    SELECT id, file_name, md5
+                    FROM video_scan_result
+                    WHERE file_name IS NOT NULL AND file_name <> ''
+                """)
+                rows = cursor.fetchall()
+
+                all_keys = {}
+                empty_md5_keys = {}
+
+                for row in rows:
+                    key = self._build_md5_match_key(row.get('file_name'))
+                    if not key:
+                        continue
+
+                    all_keys[key] = all_keys.get(key, 0) + 1
+
+                    md5_val = row.get('md5')
+                    if md5_val is None or str(md5_val).strip() == '':
+                        empty_md5_keys.setdefault(key, []).append(row['id'])
+
+                update_rows = []
+                not_found_count = 0
+                skipped_existing_count = 0
+                matched_count = 0
+
+                for file_name, md5_val in parsed_map.items():
+                    key = self._build_md5_match_key(file_name)
+                    if not key:
+                        not_found_count += 1
+                        continue
+
+                    target_ids = empty_md5_keys.get(key, [])
+                    if target_ids:
+                        matched_count += len(target_ids)
+                        for row_id in target_ids:
+                            update_rows.append((md5_val, row_id))
+                    elif key in all_keys:
+                        skipped_existing_count += 1
+                    else:
+                        not_found_count += 1
+
+                updated_count = 0
+                if update_rows:
+                    cursor.executemany(
+                        """
+                        UPDATE video_scan_result
+                        SET md5 = %s
+                        WHERE id = %s AND (md5 IS NULL OR TRIM(md5) = '')
+                        """,
+                        update_rows
+                    )
+                    conn.commit()
+                    updated_count = len(update_rows)
+
+                return {
+                    "success": True,
+                    "data": {
+                        "parsed_count": len(parsed_map),
+                        "matched_count": matched_count,
+                        "updated_count": updated_count,
+                        "not_found_count": not_found_count,
+                        "skipped_existing_count": skipped_existing_count
+                    }
+                }
+        except Exception as e:
+            logger.exception(f"山东MD5回填失败: {e}")
+            return {"success": False, "error": str(e)}
     
     def get_stats(self) -> Dict[str, Any]:
         """获取扫描结果统计信息"""
@@ -374,26 +601,6 @@ class ScanResultImportService:
                 }
         except Exception as e:
             logger.exception(f"获取统计信息失败: {e}")
-            return {"success": False, "error": str(e)}
-    
-    def clear_all(self) -> Dict[str, Any]:
-        """清空所有扫描结果"""
-        try:
-            with get_db() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM video_scan_result")
-                count = cursor.fetchone()[0]
-                
-                cursor.execute("TRUNCATE TABLE video_scan_result")
-                conn.commit()
-                
-                logger.info(f"已清空 video_scan_result 表，删除 {count} 条记录")
-                return {
-                    "success": True,
-                    "message": f"已清空 {count} 条记录"
-                }
-        except Exception as e:
-            logger.exception(f"清空表失败: {e}")
             return {"success": False, "error": str(e)}
     
     def search(self, keyword: str = None, source_folder: str = None, 

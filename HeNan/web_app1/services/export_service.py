@@ -18,6 +18,24 @@ from services.drama_service import (
 
 class ExcelExportService:
     """Excel导出服务"""
+
+    @staticmethod
+    def _clear_columns(sheet, headers_to_clear):
+        """将指定表头列的单元格删除为真正的空单元格。"""
+        if sheet.max_row < 2:
+            return
+        header_map = {cell.value: idx for idx, cell in enumerate(sheet[1], start=1)}
+        for header in headers_to_clear:
+            col_idx = header_map.get(header)
+            if not col_idx:
+                continue
+            for row_idx in range(2, sheet.max_row + 1):
+                coord = sheet.cell(row=row_idx, column=col_idx).coordinate
+                # 删除单元格记录，避免写出空字符串或空值占位
+                try:
+                    del sheet[coord]
+                except Exception:
+                    sheet.cell(row=row_idx, column=col_idx, value=None)
     
     @staticmethod
     def format_excel_sheets(writer, customer_code: str):
@@ -165,7 +183,11 @@ class ExcelExportService:
             if first_col and ('vod_no' in first_col.lower() or first_col == '序号'):
                 header_dict[first_col] = drama_sequence
             elif first_col:
-                header_dict[first_col] = ''
+                header_dict[first_col] = None
+
+            # 导出时剧头id列保持空单元格
+            if '剧头id' in drama_columns:
+                header_dict['剧头id'] = None
             
             # 江苏新媒体: sId字段留空
             if customer_code == 'jiangsu_newmedia' and 'sId' in header_dict:
@@ -187,7 +209,7 @@ class ExcelExportService:
                     if 'vod_info_no' in first_ep_col.lower() or first_ep_col == '序号':
                         ep_data[first_ep_col] = episode_sequence
                     else:
-                        ep_data[first_ep_col] = ''
+                        ep_data[first_ep_col] = None
                 
                 # 处理剧头序号关联
                 if 'vod_no' in episode_columns:
@@ -199,6 +221,10 @@ class ExcelExportService:
                         ep_data['sId'] = None
                     if 'pId' in ep_data:
                         ep_data['pId'] = None
+
+                # 导出时子集id列保持空单元格
+                if '子集id' in episode_columns:
+                    ep_data['子集id'] = None
                 
                 all_episodes.append(ep_data)
             
@@ -220,16 +246,26 @@ class ExcelExportService:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             drama_df.to_excel(writer, sheet_name='剧头', index=False)
             episode_df.to_excel(writer, sheet_name='子集', index=False)
-            
+
             if customer_code == 'jiangsu_newmedia' and all_pictures:
                 picture_columns = [col['col'] for col in config.get('picture_columns', [])]
                 picture_df = pd.DataFrame(all_pictures, columns=picture_columns)
                 picture_df.to_excel(writer, sheet_name='图片', index=False)
-            
+
             if customer_code == 'jiangsu_newmedia':
                 ExcelExportService.format_jiangsu_excel(writer)
             else:
                 ExcelExportService.format_excel_sheets(writer, customer_code)
+
+            # 格式化之后再清空 id 列：format 会对每个单元格调用 sheet.cell() 创建单元格
+            # 若在 format 之前清空，format 会将已删除的单元格重建，导致写出 t="n" 的空数值单元格
+            # Java 读取 t="n" 时识别为 NUMERIC 类型，返回 "0" 而非 null，造成上传失败
+            drama_sheet = writer.sheets.get('剧头')
+            episode_sheet = writer.sheets.get('子集')
+            if drama_sheet:
+                ExcelExportService._clear_columns(drama_sheet, ['剧头id'])
+            if episode_sheet:
+                ExcelExportService._clear_columns(episode_sheet, ['子集id'])
         
         output.seek(0)
         return output
@@ -255,7 +291,11 @@ class ExcelExportService:
             header_dict['vod_no'] = 1
             header_dict['sId'] = None
         elif drama_columns and drama_columns[0] in header_dict:
-            header_dict[drama_columns[0]] = ''
+            header_dict[drama_columns[0]] = None
+
+        # 导出时剧头id列保持空单元格
+        if '剧头id' in drama_columns:
+            header_dict['剧头id'] = None
         
         header_df = pd.DataFrame([header_dict], columns=drama_columns)
         
@@ -271,7 +311,11 @@ class ExcelExportService:
                 ep_data['sId'] = None
                 ep_data['pId'] = None
             elif episode_columns and episode_columns[0] in ep_data:
-                ep_data[episode_columns[0]] = ''
+                ep_data[episode_columns[0]] = None
+
+            # 导出时子集id列保持空单元格
+            if '子集id' in episode_columns:
+                ep_data['子集id'] = None
             
             episode_list.append(ep_data)
         
@@ -282,7 +326,7 @@ class ExcelExportService:
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             header_df.to_excel(writer, sheet_name='剧头', index=False)
             subset_df.to_excel(writer, sheet_name='子集', index=False)
-            
+
             if customer_code == 'jiangsu_newmedia':
                 picture_data = build_picture_data_fast(drama.get('_pinyin_abbr', ''))
                 for i, pic in enumerate(picture_data, 1):
@@ -291,11 +335,19 @@ class ExcelExportService:
                 picture_columns = [col['col'] for col in config.get('picture_columns', [])]
                 picture_df = pd.DataFrame(picture_data, columns=picture_columns)
                 picture_df.to_excel(writer, sheet_name='图片', index=False)
-            
+
             if customer_code == 'jiangsu_newmedia':
                 ExcelExportService.format_jiangsu_excel(writer)
             else:
                 ExcelExportService.format_excel_sheets(writer, customer_code)
-        
+
+            # 格式化之后再清空 id 列（原因同 export_customer_dramas）
+            drama_sheet = writer.sheets.get('剧头')
+            episode_sheet = writer.sheets.get('子集')
+            if drama_sheet:
+                ExcelExportService._clear_columns(drama_sheet, ['剧头id'])
+            if episode_sheet:
+                ExcelExportService._clear_columns(episode_sheet, ['子集id'])
+
         output.seek(0)
         return output

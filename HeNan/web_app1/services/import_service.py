@@ -6,6 +6,7 @@ Excel导入服务模块 - 高性能版本
 import os
 import uuid
 import json
+import re
 import pymysql
 import pandas as pd
 import threading
@@ -18,7 +19,7 @@ from config import CUSTOMER_CONFIGS, get_enabled_customers
 from utils import (
     get_pinyin_abbr, get_image_url, get_product_category, format_datetime,
     clean_numeric, clean_string, build_drama_props, build_episodes,
-    extract_episode_number, find_scan_match,
+    extract_episode_number, find_scan_match, build_media_name_variants,
     COLUMN_MAPPING, NUMERIC_FIELDS, INSERT_FIELDS
 )
 
@@ -55,6 +56,24 @@ class ImportTask:
     drama_ids_for_episodes: List[Dict] = field(default_factory=list)  # 待生成子集的剧头信息
 
 
+@dataclass
+class BackfillTask:
+    task_id: str
+    media_names: List[str] = field(default_factory=list)
+    fields: List[str] = field(default_factory=list)
+    status: str = "pending"  # pending/running/completed/failed
+    total_media: int = 0
+    processed_media: int = 0
+    matched_episodes: int = 0
+    updated_episodes: int = 0
+    skipped_episodes: int = 0
+    missed_episodes: int = 0
+    failed_count: int = 0
+    errors: List[Dict] = field(default_factory=list)
+    created_at: datetime = field(default_factory=datetime.now)
+    completed_at: Optional[datetime] = None
+
+
 class ExcelImportService:
     """Excel导入服务"""
     
@@ -63,6 +82,7 @@ class ExcelImportService:
     ALLOWED_EXTENSIONS = {'.xlsx', '.xls'}
     
     _tasks: Dict[str, ImportTask] = {}
+    _backfill_tasks: Dict[str, BackfillTask] = {}
     
     def __init__(self, upload_dir: str = "temp/uploads"):
         self.upload_dir = upload_dir
@@ -84,6 +104,235 @@ class ExcelImportService:
     
     def get_task(self, task_id: str) -> Optional[ImportTask]:
         return self._tasks.get(task_id)
+
+    def create_backfill_task(self, media_names: List[str], fields: List[str]) -> BackfillTask:
+        cleaned_media_names = []
+        seen = set()
+        for name in media_names or []:
+            value = str(name or '').strip()
+            if value and value not in seen:
+                seen.add(value)
+                cleaned_media_names.append(value)
+
+        valid_fields = [f for f in (fields or []) if f in {'md5', 'duration', 'size'}]
+        if not valid_fields:
+            valid_fields = ['md5', 'duration', 'size']
+
+        task_id = str(uuid.uuid4())
+        task = BackfillTask(
+            task_id=task_id,
+            media_names=cleaned_media_names,
+            fields=valid_fields,
+            total_media=len(cleaned_media_names)
+        )
+        self._backfill_tasks[task_id] = task
+        return task
+
+    def get_backfill_task(self, task_id: str) -> Optional[BackfillTask]:
+        return self._backfill_tasks.get(task_id)
+
+    def _duration_to_hhmmss(self, seconds_value: Any) -> str:
+        try:
+            total_seconds = int(float(seconds_value or 0))
+        except (TypeError, ValueError):
+            total_seconds = 0
+        if total_seconds <= 0:
+            return '00:00:00'
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    def _is_empty_episode_field(self, value_type: str, value: Any) -> bool:
+        if value is None:
+            return True
+        if value_type == 'md5':
+            return str(value).strip() == ''
+        if value_type == 'duration':
+            value_str = str(value).strip()
+            return value_str in {'', '0', '00000000', '00:00:00'}
+        if value_type == 'size':
+            try:
+                return float(value) == 0
+            except (TypeError, ValueError):
+                return True
+        return str(value).strip() == ''
+
+    def _extract_episode_num_from_props(self, props: Dict[str, Any], episode_name: str) -> Optional[int]:
+        for key in ['集数', 'volumnCount']:
+            raw_value = props.get(key)
+            if raw_value is None:
+                continue
+            try:
+                episode_num = int(float(raw_value))
+                if episode_num > 0:
+                    return episode_num
+            except (TypeError, ValueError):
+                continue
+
+        return extract_episode_number(episode_name)
+
+    def execute_backfill_sync(self, task: BackfillTask, conn) -> Dict[str, Any]:
+        if not task.media_names:
+            task.status = 'failed'
+            task.completed_at = datetime.now()
+            task.errors.append({'message': '未提供需要回填的剧名'})
+            return {'success': False, 'error': '未提供需要回填的剧名'}
+
+        task.status = 'running'
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        try:
+            placeholders = ','.join(['%s'] * len(task.media_names))
+            cursor.execute(
+                f"""
+                SELECT drama_id, customer_code, drama_name
+                FROM drama_main
+                WHERE drama_name IN ({placeholders})
+                ORDER BY drama_id ASC
+                """,
+                task.media_names
+            )
+            drama_rows = cursor.fetchall()
+            if not drama_rows:
+                task.status = 'completed'
+                task.completed_at = datetime.now()
+                return {
+                    'success': True,
+                    'total_media': task.total_media,
+                    'processed_media': task.processed_media,
+                    'updated_episodes': task.updated_episodes
+                }
+
+            available_media_names = list({row['drama_name'] for row in drama_rows if row.get('drama_name')})
+            scan_results = self._preload_scans(cursor, available_media_names)
+            pinyin_cache = {name: get_pinyin_abbr(name) for name in available_media_names}
+
+            requested_types = set()
+            if 'md5' in task.fields:
+                requested_types.add('md5')
+            if 'duration' in task.fields:
+                requested_types.update({'duration', 'duration_minutes', 'duration_seconds', 'duration_hhmmss'})
+            if 'size' in task.fields:
+                requested_types.add('file_size')
+
+            update_batch = []
+            for media_name in task.media_names:
+                media_dramas = [row for row in drama_rows if row.get('drama_name') == media_name]
+                if not media_dramas:
+                    task.processed_media += 1
+                    continue
+
+                for drama in media_dramas:
+                    drama_id = drama['drama_id']
+                    customer_code = drama['customer_code']
+                    config = CUSTOMER_CONFIGS.get(customer_code, {})
+                    episode_columns = [c for c in config.get('episode_columns', []) if c.get('type') in requested_types]
+                    if not episode_columns:
+                        continue
+
+                    cursor.execute(
+                        "SELECT episode_id, episode_name, dynamic_properties FROM drama_episode WHERE drama_id = %s",
+                        (drama_id,)
+                    )
+                    episode_rows = cursor.fetchall()
+                    if not episode_rows:
+                        continue
+
+                    abbr = pinyin_cache.get(media_name) if pinyin_cache else get_pinyin_abbr(media_name)
+
+                    for episode in episode_rows:
+                        episode_name = episode.get('episode_name') or ''
+                        try:
+                            props = json.loads(episode.get('dynamic_properties') or '{}')
+                        except Exception:
+                            props = {}
+
+                        episode_num = self._extract_episode_num_from_props(props, episode_name)
+                        if not episode_num:
+                            task.failed_count += 1
+                            continue
+
+                        match = find_scan_match(scan_results, media_name, abbr, episode_num)
+                        if not match:
+                            task.missed_episodes += 1
+                            continue
+
+                        task.matched_episodes += 1
+                        duration_seconds = int(match.get('duration') or 0)
+                        duration_formatted = match.get('duration_formatted') or '00000000'
+                        file_size = int(match.get('size') or match.get('size_bytes') or 0)
+                        md5_value = match.get('md5') or ''
+
+                        changed = False
+                        for col_cfg in episode_columns:
+                            col_name = col_cfg['col']
+                            value_type = col_cfg.get('type')
+                            old_value = props.get(col_name)
+
+                            if value_type == 'md5':
+                                new_value = md5_value
+                                if self._is_empty_episode_field('md5', old_value) and not self._is_empty_episode_field('md5', new_value):
+                                    props[col_name] = new_value
+                                    changed = True
+                            elif value_type == 'duration':
+                                new_value = duration_formatted
+                                if self._is_empty_episode_field('duration', old_value) and not self._is_empty_episode_field('duration', new_value):
+                                    props[col_name] = new_value
+                                    changed = True
+                            elif value_type == 'duration_minutes':
+                                new_value = round(duration_seconds / 60) if duration_seconds else 0
+                                if self._is_empty_episode_field('duration', old_value) and not self._is_empty_episode_field('duration', new_value):
+                                    props[col_name] = new_value
+                                    changed = True
+                            elif value_type == 'duration_seconds':
+                                new_value = duration_seconds
+                                if self._is_empty_episode_field('duration', old_value) and not self._is_empty_episode_field('duration', new_value):
+                                    props[col_name] = new_value
+                                    changed = True
+                            elif value_type == 'duration_hhmmss':
+                                new_value = self._duration_to_hhmmss(duration_seconds)
+                                if self._is_empty_episode_field('duration', old_value) and not self._is_empty_episode_field('duration', new_value):
+                                    props[col_name] = new_value
+                                    changed = True
+                            elif value_type == 'file_size':
+                                new_value = file_size
+                                if self._is_empty_episode_field('size', old_value) and not self._is_empty_episode_field('size', new_value):
+                                    props[col_name] = new_value
+                                    changed = True
+
+                        if changed:
+                            update_batch.append((json.dumps(props, ensure_ascii=False), episode['episode_id']))
+                            task.updated_episodes += 1
+                        else:
+                            task.skipped_episodes += 1
+
+                task.processed_media += 1
+
+            if update_batch:
+                cursor.executemany(
+                    "UPDATE drama_episode SET dynamic_properties = %s WHERE episode_id = %s",
+                    update_batch
+                )
+                conn.commit()
+
+            task.status = 'completed'
+            task.completed_at = datetime.now()
+            return {
+                'success': True,
+                'total_media': task.total_media,
+                'processed_media': task.processed_media,
+                'matched_episodes': task.matched_episodes,
+                'updated_episodes': task.updated_episodes,
+                'missed_episodes': task.missed_episodes,
+                'skipped_episodes': task.skipped_episodes,
+            }
+        except Exception as e:
+            task.status = 'failed'
+            task.completed_at = datetime.now()
+            task.errors.append({'message': str(e)})
+            conn.rollback()
+            return {'success': False, 'error': str(e)}
     
     def parse_excel(self, task: ImportTask) -> Dict[str, Any]:
         try:
@@ -159,20 +408,30 @@ class ExcelImportService:
         # 分批查询，每批100个媒体名称，避免SQL过长
         for i in range(0, len(media_names), 100):
             batch_names = media_names[i:i+100]
-            batch_abbrs = [get_pinyin_abbr(name) for name in batch_names]
+            match_names_set = set()
+            for name in batch_names:
+                for variant in build_media_name_variants(name):
+                    if variant:
+                        match_names_set.add(variant)
+                        compact_variant = variant.replace(' ', '')
+                        if compact_variant:
+                            match_names_set.add(compact_variant)
+            match_names = list(match_names_set)
+
+            batch_abbrs = [get_pinyin_abbr(name) for name in match_names]
             batch_abbrs = [abbr for abbr in batch_abbrs if abbr]
 
             conditions = []
             values = []
             # 使用LIKE匹配 file_name，每个媒体名称可能有多集
-            if batch_names:
-                like_conditions = ' OR '.join(['file_name LIKE %s'] * len(batch_names))
+            if match_names:
+                like_conditions = ' OR '.join(['file_name LIKE %s'] * len(match_names))
                 conditions.append(f"({like_conditions})")
-                values.extend([f"{name}%" for name in batch_names])
+                values.extend([f"{name}%" for name in match_names])
                 # folder 直接命名为剧集名称
-                in_names = ','.join(['%s'] * len(batch_names))
+                in_names = ','.join(['%s'] * len(match_names))
                 conditions.append(f"source_file IN ({in_names})")
-                values.extend(batch_names)
+                values.extend(match_names)
             # folder 命名为拼音缩写
             if batch_abbrs:
                 in_abbrs = ','.join(['%s'] * len(batch_abbrs))

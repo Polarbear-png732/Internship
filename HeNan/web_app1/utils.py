@@ -5,10 +5,126 @@
 import json
 import os
 import re
+import threading
+from datetime import datetime
 import pandas as pd
 from functools import lru_cache
 from pypinyin import pinyin, Style
 from config import CUSTOMER_CONFIGS
+
+
+SCAN_MATCH_DEBUG_ENABLED = os.getenv('SCAN_MATCH_DEBUG', '1').lower() in {'1', 'true', 'yes', 'on'}
+SCAN_MATCH_DEBUG_DIR = os.path.join(os.path.dirname(__file__), 'logs')
+SCAN_MATCH_HIT_LOG = os.path.join(SCAN_MATCH_DEBUG_DIR, 'scan_match_hits.log')
+SCAN_MATCH_MISS_LOG = os.path.join(SCAN_MATCH_DEBUG_DIR, 'scan_match_misses.log')
+_scan_match_log_lock = threading.Lock()
+_scan_match_hit_media_logged = set()
+_scan_match_miss_media_logged = set()
+
+SCAN_RULE_LABELS = {
+    1: '精确名-三位集数',
+    2: '精确名-两位集数',
+    3: '精确名-自然数',
+    4: '名称+三位数字',
+    5: '名称+两位数字',
+    6: '名称+自然数',
+    7: 'abbr+三位数字',
+    8: 'abbr+两位数字',
+    9: 'abbr+自然数',
+    10: 'abbr前缀扫描',
+    11: '文件夹索引-剧名',
+    12: '文件夹索引-abbr',
+}
+
+
+def _normalize_match_text(value: str):
+    """匹配文本归一化：去空白+小写，用于消除命名中的空格差异"""
+    if value is None:
+        return ''
+    return re.sub(r'\s+', '', str(value)).lower()
+
+
+def _format_scan_match_debug_log(payload: dict, matched: bool):
+    timestamp = payload.get('timestamp', '')
+    media_name = payload.get('media_name', '')
+    abbr = payload.get('abbr', '')
+    episode_num = payload.get('episode_num', '')
+    rule = payload.get('rule')
+    matched_key = payload.get('matched_key')
+    attempts = payload.get('attempts') or []
+    result = payload.get('result') or {}
+    precheck_reason = payload.get('precheck_reason')
+
+    if matched:
+        rule_name = SCAN_RULE_LABELS.get(rule, '未知规则')
+        return (
+            f"[{timestamp}] 命中 | 剧名={media_name} | 拼音={abbr} | 集数={episode_num} | "
+            f"规则={rule}({rule_name}) | key={matched_key} | "
+            f"duration={result.get('duration_formatted') or '-'} | "
+            f"size={result.get('size_bytes') or '-'} | md5={result.get('md5') or '-'}\n"
+        )
+
+    attempt_map = {item.get('rule'): item for item in attempts if isinstance(item, dict)}
+    lines = [
+        '=== 匹配失败 ===',
+        f'时间: {timestamp}',
+        f'剧名: {media_name}',
+        f'拼音: {abbr}',
+        f'集数: {episode_num}',
+        '结果: 未命中',
+        f'前置原因: {precheck_reason}' if precheck_reason else None,
+        '',
+        '[规则尝试明细]'
+    ]
+    lines = [line for line in lines if line is not None]
+
+    for rule_no in range(1, 13):
+        label = SCAN_RULE_LABELS.get(rule_no, f'规则{rule_no}')
+        attempt = attempt_map.get(rule_no, {})
+        matched_flag = bool(attempt.get('matched'))
+        status = '命中' if matched_flag else '失败'
+        reason = attempt.get('reason', '未执行')
+
+        if rule_no in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
+            detail = f"key={attempt.get('key', '-') }"
+        elif rule_no == 10:
+            detail = (
+                f"prefix={attempt.get('prefix', '-')} "
+                f"candidates={attempt.get('candidates', 0)}"
+            )
+        else:
+            detail = f"folder={attempt.get('folder', '-')} ep={attempt.get('episode', '-') }"
+
+        lines.append(f"{rule_no:>2}. {label:<12} {detail:<45} -> {status}（{reason}）")
+
+    lines.extend([
+        '',
+        '[失败结论]',
+        '未找到任何可用扫描记录（duration/size/md5 全为空）',
+        '================',
+        ''
+    ])
+    return '\n'.join(lines)
+
+
+def _write_scan_match_debug_log(payload: dict, matched: bool):
+    if not SCAN_MATCH_DEBUG_ENABLED:
+        return
+    try:
+        os.makedirs(SCAN_MATCH_DEBUG_DIR, exist_ok=True)
+        target_file = SCAN_MATCH_HIT_LOG if matched else SCAN_MATCH_MISS_LOG
+        media_name = str(payload.get('media_name') or '').strip()
+        log_text = _format_scan_match_debug_log(payload, matched)
+        with _scan_match_log_lock:
+            if media_name:
+                logged_set = _scan_match_hit_media_logged if matched else _scan_match_miss_media_logged
+                if media_name in logged_set:
+                    return
+                logged_set.add(media_name)
+            with open(target_file, 'a', encoding='utf-8') as f:
+                f.write(log_text)
+    except Exception:
+        pass
 
 
 # ============================================================
@@ -46,6 +162,8 @@ def get_pinyin_abbr(name):
 def get_content_dir(content_type, customer_code='henan_mobile'):
     """根据内容类型和客户获取媒体目录"""
     config = CUSTOMER_CONFIGS.get(customer_code, {})
+    if content_type:
+        content_type = get_category_level1_mapped(content_type, customer_code)
     mapping = config.get('content_dir_map', {})
     if content_type and mapping:
         for key, value in mapping.items():
@@ -246,28 +364,291 @@ def extract_episode_number(name: str):
     return None
 
 
+def _chinese_numeral_to_int(text: str):
+    """将中文数字（含两）转为整数，失败返回None"""
+    if not text:
+        return None
+
+    text = str(text).strip()
+    if text.isdigit():
+        return int(text)
+
+    char_map = {
+        '零': 0, '〇': 0,
+        '一': 1, '二': 2, '两': 2, '三': 3, '四': 4,
+        '五': 5, '六': 6, '七': 7, '八': 8, '九': 9
+    }
+    unit_map = {'十': 10, '百': 100, '千': 1000}
+
+    total = 0
+    section = 0
+    number = 0
+    for ch in text:
+        if ch in char_map:
+            number = char_map[ch]
+        elif ch in unit_map:
+            unit = unit_map[ch]
+            number = 1 if number == 0 else number
+            section += number * unit
+            number = 0
+        else:
+            return None
+
+    total = section + number
+    return total if total > 0 else None
+
+
+def _int_to_chinese_numeral(num: int):
+    if not isinstance(num, int) or num <= 0:
+        return ''
+
+    digits = '零一二三四五六七八九'
+    if num < 10:
+        return digits[num]
+    if num < 20:
+        return '十' if num == 10 else f"十{digits[num - 10]}"
+    if num < 100:
+        tens = num // 10
+        ones = num % 10
+        return f"{digits[tens]}十{digits[ones] if ones else ''}"
+    return str(num)
+
+
+def normalize_season_to_arabic(name: str):
+    """将“第二季/第2季”等统一为“第2季”"""
+    if not name:
+        return ''
+
+    def _replace(match):
+        season_text = (match.group(1) or '').strip()
+        season_num = _chinese_numeral_to_int(season_text)
+        if season_num is None:
+            return match.group(0)
+        return f"第{season_num}季"
+
+    return re.sub(r'第\s*([零〇一二两三四五六七八九十百千\d]+)\s*季', _replace, str(name))
+
+
+def normalize_season_to_chinese(name: str):
+    """将“第2季/第二季”等统一为“第二季”"""
+    if not name:
+        return ''
+
+    def _replace(match):
+        season_text = (match.group(1) or '').strip()
+        season_num = _chinese_numeral_to_int(season_text)
+        if season_num is None:
+            return match.group(0)
+        season_cn = _int_to_chinese_numeral(season_num)
+        return f"第{season_cn}季" if season_cn else match.group(0)
+
+    return re.sub(r'第\s*([零〇一二两三四五六七八九十百千\d]+)\s*季', _replace, str(name))
+
+
+def build_media_name_variants(name: str):
+    """构建媒体名匹配变体（原始 + 季数中阿双向归一化）"""
+    if not name:
+        return []
+
+    original = str(name).strip()
+    normalized_arabic = normalize_season_to_arabic(original).strip()
+    normalized_chinese = normalize_season_to_chinese(original).strip()
+    variants = []
+    for value in [original, normalized_arabic, normalized_chinese]:
+        if value and value not in variants:
+            variants.append(value)
+    return variants
+
+
 def find_scan_match(scan_results, media_name, abbr, episode_num):
     """按优先级匹配扫描结果，支持文件名与文件夹命名"""
-    if not scan_results or not media_name or not episode_num:
+    if not media_name or not episode_num:
+        payload = {
+            "timestamp": datetime.now().isoformat(timespec='seconds'),
+            "media_name": media_name,
+            "abbr": abbr,
+            "episode_num": episode_num,
+            "matched": False,
+            "rule": None,
+            "matched_key": None,
+            "attempts": [],
+            "precheck_reason": "media_name或episode_num为空，未进入规则匹配",
+            "result": {
+                "duration_formatted": None,
+                "size_bytes": None,
+                "md5": None,
+            }
+        }
+        _write_scan_match_debug_log(payload, False)
         return {}
 
-    match = scan_results.get(f"{media_name}第{episode_num:02d}集", {})
-    if not match:
-        match = scan_results.get(f"{media_name}{episode_num:02d}", {})
-    if not match:
-        match = scan_results.get(f"{media_name}{episode_num}", {})
+    if not scan_results:
+        payload = {
+            "timestamp": datetime.now().isoformat(timespec='seconds'),
+            "media_name": media_name,
+            "abbr": abbr,
+            "episode_num": episode_num,
+            "matched": False,
+            "rule": None,
+            "matched_key": None,
+            "attempts": [],
+            "precheck_reason": "scan_results为空，未进入规则匹配",
+            "result": {
+                "duration_formatted": None,
+                "size_bytes": None,
+                "md5": None,
+            }
+        }
+        _write_scan_match_debug_log(payload, False)
+        return {}
+
+    attempts = []
+    match = {}
+    matched_rule = None
+    matched_key = None
+    normalized_scan_map = {}
+    normalized_origin_key_map = {}
+
+    for scan_key, scan_value in scan_results.items():
+        if scan_key == '_folder_index' or not isinstance(scan_key, str):
+            continue
+        normalized_key = _normalize_match_text(scan_key)
+        if normalized_key and normalized_key not in normalized_scan_map:
+            normalized_scan_map[normalized_key] = scan_value
+            normalized_origin_key_map[normalized_key] = scan_key
+
+    def _lookup_scan_value(candidate_key: str):
+        normalized_candidate = _normalize_match_text(candidate_key)
+        hit = normalized_scan_map.get(normalized_candidate, {})
+        origin_key = normalized_origin_key_map.get(normalized_candidate)
+        return hit, origin_key
+
+    media_name_variants = build_media_name_variants(media_name)
+
+    candidate_rules = []
+    for media_name_variant in media_name_variants:
+        candidate_rules.extend([
+            (1, f"{media_name_variant}第{episode_num:03d}集"),
+            (2, f"{media_name_variant}第{episode_num:02d}集"),
+            (3, f"{media_name_variant}第{episode_num}集"),
+            (4, f"{media_name_variant}{episode_num:03d}"),
+            (5, f"{media_name_variant}{episode_num:02d}"),
+            (6, f"{media_name_variant}{episode_num}"),
+        ])
+    if abbr:
+        candidate_rules.extend([
+            (7, f"{abbr}{episode_num:03d}"),
+            (8, f"{abbr}{episode_num:02d}"),
+            (9, f"{abbr}{episode_num}"),
+        ])
+
+    for rule_no, key in candidate_rules:
+        match, origin_key = _lookup_scan_value(key)
+        attempts.append({
+            "rule": rule_no,
+            "key": key,
+            "matched": bool(match),
+            "reason": "命中" if match else "索引无此键"
+        })
+        if match:
+            matched_rule = rule_no
+            matched_key = origin_key or key
+            break
+
     if not match and abbr:
-        match = scan_results.get(f"{abbr}{episode_num:02d}", {})
-    if not match and abbr:
-        match = scan_results.get(f"{abbr}{episode_num}", {})
+        abbr_prefix = _normalize_match_text(abbr)
+        prefix_candidate_count = 0
+        for normalized_key, candidate in normalized_scan_map.items():
+            if not normalized_key.startswith(abbr_prefix):
+                continue
+            prefix_candidate_count += 1
+            origin_key = normalized_origin_key_map.get(normalized_key)
+            ep = extract_episode_number(origin_key)
+            if ep == episode_num:
+                match = candidate or {}
+                matched_rule = 10
+                matched_key = origin_key
+                break
+
+        if match:
+            rule10_reason = "命中"
+        elif prefix_candidate_count == 0:
+            rule10_reason = "无候选文件名前缀"
+        else:
+            rule10_reason = "候选存在但提取集数不一致"
+
+        attempts.append({
+            "rule": 10,
+            "prefix": abbr,
+            "candidates": prefix_candidate_count,
+            "matched": bool(match),
+            "reason": rule10_reason
+        })
 
     if not match:
         folder_index = scan_results.get('_folder_index', {})
-        folder_match = folder_index.get(media_name, {})
-        match = folder_match.get(episode_num, {}) if folder_match else {}
-        if not match and abbr:
-            folder_match = folder_index.get(abbr, {})
+        normalized_folder_index = {
+            _normalize_match_text(folder_name): folder_data
+            for folder_name, folder_data in folder_index.items()
+            if isinstance(folder_name, str)
+        }
+
+        for media_name_variant in media_name_variants:
+            folder_match = normalized_folder_index.get(_normalize_match_text(media_name_variant), {})
             match = folder_match.get(episode_num, {}) if folder_match else {}
+            if match:
+                rule11_reason = "命中"
+            elif not folder_match:
+                rule11_reason = "文件夹不存在"
+            else:
+                rule11_reason = "文件夹存在但该集不存在"
+            attempts.append({
+                "rule": 11,
+                "folder": media_name_variant,
+                "episode": episode_num,
+                "matched": bool(match),
+                "reason": rule11_reason
+            })
+            if match:
+                matched_rule = 11
+                matched_key = media_name_variant
+                break
+        if not match and abbr:
+            folder_match = normalized_folder_index.get(_normalize_match_text(abbr), {})
+            match = folder_match.get(episode_num, {}) if folder_match else {}
+            if match:
+                rule12_reason = "命中"
+            elif not folder_match:
+                rule12_reason = "文件夹不存在"
+            else:
+                rule12_reason = "文件夹存在但该集不存在"
+            attempts.append({
+                "rule": 12,
+                "folder": abbr,
+                "episode": episode_num,
+                "matched": bool(match),
+                "reason": rule12_reason
+            })
+            if match:
+                matched_rule = 12
+                matched_key = abbr
+
+    payload = {
+        "timestamp": datetime.now().isoformat(timespec='seconds'),
+        "media_name": media_name,
+        "abbr": abbr,
+        "episode_num": episode_num,
+        "matched": bool(match),
+        "rule": matched_rule,
+        "matched_key": matched_key,
+        "attempts": attempts,
+        "result": {
+            "duration_formatted": match.get('duration_formatted') if match else None,
+            "size_bytes": match.get('size_bytes') if match else None,
+            "md5": match.get('md5') if match else None,
+        }
+    }
+    _write_scan_match_debug_log(payload, bool(match))
 
     return match or {}
 

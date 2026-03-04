@@ -12,7 +12,7 @@ from database import get_db
 from utils import (
     get_pinyin_abbr, get_content_dir, get_product_category,
     get_image_url, get_media_url, format_duration, format_datetime, get_genre,
-    extract_episode_number, find_scan_match
+    extract_episode_number, find_scan_match, build_media_name_variants
 )
 from config import CUSTOMER_CONFIGS, get_enabled_customers
 
@@ -271,14 +271,27 @@ class CopyrightDramaService:
         content_type = data.get('category_level1_henan') or data.get('category_level1') or ''
         content_dir = get_content_dir(content_type, customer_code)
         
-        # 批量查询扫描结果（使用 file_name 模糊匹配）
-        episode_names = [f"{media_name}第{ep:02d}集" for ep in range(start_episode, end_episode + 1)]
+        # 批量查询扫描结果（使用剧名变体 + file_name 模糊匹配）
+        media_name_variants = set()
+        for variant in build_media_name_variants(media_name):
+            if variant:
+                media_name_variants.add(variant)
+                compact_variant = variant.replace(' ', '')
+                if compact_variant:
+                    media_name_variants.add(compact_variant)
+
+        episode_names = []
+        for variant in media_name_variants:
+            episode_names.extend(
+                [f"{variant}第{ep:02d}集" for ep in range(start_episode, end_episode + 1)]
+            )
+
         like_conditions = ' OR '.join(['file_name LIKE %s'] * len(episode_names))
         like_values = [f"{name}%" for name in episode_names]
         where_parts = [f"({like_conditions})"] if like_conditions else []
         where_values = list(like_values)
         # 兼容文件夹按剧集名或拼音缩写命名
-        folder_values = [media_name]
+        folder_values = list(media_name_variants) if media_name_variants else [media_name]
         if abbr:
             folder_values.append(abbr)
         if folder_values:

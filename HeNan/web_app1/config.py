@@ -9,7 +9,7 @@ DB_CONFIG = {
     'host': 'localhost',
     'port': 3306,
     'user': 'root',
-    'password': 'polarbear',
+    'password': 'skytvmedia',
     'database': 'operation_management',
     'charset': 'utf8mb4'
 }

@@ -5,7 +5,7 @@
 """
 from fastapi import APIRouter, HTTPException, Query, Body
 from fastapi.responses import StreamingResponse
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import pymysql
 import pandas as pd
 import json
@@ -314,6 +314,15 @@ def create_copyright(data: Dict[str, Any] = Body(...)):
     
     if 'media_name' not in data or not data['media_name']:
         raise HTTPException(status_code=400, detail="介质名称不能为空")
+
+    episode_count = data.get('episode_count')
+    try:
+        episode_count = int(episode_count)
+    except (TypeError, ValueError):
+        episode_count = 0
+    if episode_count <= 0:
+        raise HTTPException(status_code=400, detail="集数为必填项，且必须大于0")
+    data['episode_count'] = episode_count
     
     media_name = data['media_name']
     
@@ -537,7 +546,6 @@ async def upload_excel_for_import(file: UploadFile = File(...)):
     接收Excel文件，解析内容并返回预览数据和统计信息
     """
     # 验证文件
-    file_size = 0
     content = await file.read()
     file_size = len(content)
     
@@ -578,6 +586,12 @@ async def upload_excel_for_import(file: UploadFile = File(...)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"文件处理失败: {str(e)}")
+    finally:
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        except Exception:
+            pass
 
 
 @router.post("/import/execute/{task_id}")
@@ -626,6 +640,20 @@ async def _run_import_task(task_id: str):
         task.errors.append({"message": f"导入失败: {str(e)}"})
 
 
+async def _run_backfill_task(task_id: str):
+    """后台执行子集扫描字段回填任务"""
+    task = import_service.get_backfill_task(task_id)
+    if not task:
+        return
+
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _sync_backfill_task, task_id)
+    except Exception as e:
+        task.status = 'failed'
+        task.errors.append({"message": f"回填失败: {str(e)}"})
+
+
 def _sync_import_task(task_id: str):
     """同步执行导入任务"""
     task = import_service.get_task(task_id)
@@ -642,6 +670,20 @@ def _sync_import_task(task_id: str):
     except Exception as e:
         task.status = ImportStatus.FAILED
         task.errors.append({"message": f"导入失败: {str(e)}"})
+
+
+def _sync_backfill_task(task_id: str):
+    """同步执行子集扫描字段回填任务"""
+    task = import_service.get_backfill_task(task_id)
+    if not task:
+        return
+
+    try:
+        with get_db() as conn:
+            import_service.execute_backfill_sync(task, conn)
+    except Exception as e:
+        task.status = 'failed'
+        task.errors.append({"message": f"回填失败: {str(e)}"})
 
 
 @router.get("/import/progress/{task_id}")
@@ -734,5 +776,64 @@ def get_import_status(task_id: str):
             # 新增：子集生成进度
             "episode_generation_status": getattr(task, 'episode_generation_status', ''),
             "episode_generation_progress": getattr(task, 'episode_generation_progress', 0)
+        }
+    }
+
+
+@router.post('/backfill/scan-fields/start')
+async def start_scan_field_backfill(
+    background_tasks: BackgroundTasks,
+    payload: Dict[str, Any] = Body(...)
+):
+    """启动子集扫描字段回填任务（仅回填空值）"""
+    media_names = payload.get('media_names') or []
+    fields = payload.get('fields') or ['md5', 'duration', 'size']
+
+    if not isinstance(media_names, list) or not media_names:
+        raise HTTPException(status_code=400, detail='media_names 不能为空')
+
+    task = import_service.create_backfill_task(media_names=media_names, fields=fields)
+    if task.total_media <= 0:
+        raise HTTPException(status_code=400, detail='未提供有效剧名')
+
+    background_tasks.add_task(_run_backfill_task, task.task_id)
+
+    return {
+        'code': 200,
+        'message': '回填任务已启动',
+        'data': {
+            'task_id': task.task_id,
+            'total_media': task.total_media,
+            'fields': task.fields,
+            'mode': 'only_empty'
+        }
+    }
+
+
+@router.get('/backfill/scan-fields/status/{task_id}')
+def get_scan_field_backfill_status(task_id: str):
+    """获取子集扫描字段回填任务状态"""
+    task = import_service.get_backfill_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail='任务不存在')
+
+    total = task.total_media or 1
+    percentage = int(task.processed_media / total * 100) if task.total_media > 0 else 0
+
+    return {
+        'code': 200,
+        'data': {
+            'task_id': task.task_id,
+            'status': task.status,
+            'total_media': task.total_media,
+            'processed_media': task.processed_media,
+            'percentage': percentage,
+            'fields': task.fields,
+            'matched_episodes': task.matched_episodes,
+            'updated_episodes': task.updated_episodes,
+            'skipped_episodes': task.skipped_episodes,
+            'missed_episodes': task.missed_episodes,
+            'failed_count': task.failed_count,
+            'errors': task.errors[:50] if task.status in ['completed', 'failed'] else []
         }
     }

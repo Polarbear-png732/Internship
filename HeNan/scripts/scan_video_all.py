@@ -56,8 +56,11 @@ class Colors:
 # 配置区域
 # ============================================================
 
-# 输出目录
-OUTPUT_DIR = Path("C:/Users/Public/video_scan")
+DEFAULT_OUTPUT_DIR = Path("C:/Users/Public/video_scan")
+
+CONFIG_FILE = Path.home() / ".video_scan_config.json"
+
+OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 
 # 支持的视频扩展名（覆盖常见格式）
 VIDEO_EXTS = {
@@ -130,23 +133,64 @@ CURRENT_SCAN_MODE = None
 # 工具函数
 # ============================================================
 
+def load_config() -> dict:
+    """加载配置文件"""
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+
+def save_config(config: dict):
+    """保存配置文件"""
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[警告] 保存配置失败: {e}")
+
+
+def get_output_dir() -> Path:
+    """获取输出目录"""
+    config = load_config()
+    if "output_dir" in config:
+        return Path(config["output_dir"])
+    return DEFAULT_OUTPUT_DIR
+
+
+def set_output_dir(output_dir: Path):
+    """设置并保存输出目录"""
+    global OUTPUT_DIR
+    OUTPUT_DIR = output_dir
+    config = load_config()
+    config["output_dir"] = str(output_dir)
+    save_config(config)
+
+
 def get_pinyin_abbr(name: str) -> str:
     """
     获取名称的拼音首字母缩写
     例如: "熊出没" -> "xcm", "小猪佩奇" -> "xzpq"
     """
-    if not HAS_PYPINYIN or not name:
+    if not name:
         return ""
-    
-    # 只取中文和字母
-    chars = [c for c in name if '\u4e00' <= c <= '\u9fff' or c.isalpha()]
-    if not chars:
-        return ""
-    
-    # 获取拼音首字母
-    initials = lazy_pinyin(''.join(chars), style=0)  # style=0 返回普通拼音
-    abbr = ''.join(p[0] if p else '' for p in initials)
-    return abbr.lower()
+
+    result = []
+    for char in str(name):
+        if '\u4e00' <= char <= '\u9fff':
+            if HAS_PYPINYIN and lazy_pinyin:
+                py = lazy_pinyin(char)
+                if py and py[0]:
+                    result.append(py[0][0].lower())
+            else:
+                continue
+        elif char.isalnum():
+            result.append(char.lower())
+
+    return ''.join(result)
 
 
 def get_episode_pinyin_abbr(file_name: str) -> str:
@@ -416,7 +460,6 @@ def select_scan_mode() -> dict:
 
 
 def main():
-    # 显示 pypinyin 警告（仅当未安装时）
     if not HAS_PYPINYIN:
         print(f"{Colors.YELLOW}[警告] 未安装 pypinyin，拼音缩写功能将不可用。可通过 pip install pypinyin 安装{Colors.RESET}")
     
@@ -425,38 +468,77 @@ def main():
     print(f"{Colors.BOLD}          扫描时长、大小、MD5，输出数据库格式CSV{Colors.RESET}")
     print(f"{Colors.CYAN}" + "=" * 70 + f"{Colors.RESET}")
     print()
-    print(f"{Colors.YELLOW}[配置]{Colors.RESET} 输出目录: {Colors.RED}{Colors.BOLD}{OUTPUT_DIR}{Colors.RESET}")
-    # 格式列表简化显示（只显示部分）
+    
     common_exts = ['.mp4', '.mkv', '.avi', '.mov', '.ts', '.flv', '.wmv', '.rmvb', '...']
     print(f"{Colors.YELLOW}[配置]{Colors.RESET} 支持格式: {Colors.BLUE}{', '.join(common_exts)}{Colors.RESET} 共{len(VIDEO_EXTS)}种")
     pinyin_status = f"{Colors.GREEN}已启用{Colors.RESET}" if HAS_PYPINYIN else f"{Colors.YELLOW}未启用{Colors.RESET}"
     print(f"{Colors.YELLOW}[配置]{Colors.RESET} 拼音功能: {pinyin_status}")
     print()
     
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    output_csv = OUTPUT_DIR / "video_scan_result.csv"
+    output_dir = get_output_dir()
+    print(f"{Colors.YELLOW}[配置]{Colors.RESET} 输出目录: {Colors.RED}{Colors.BOLD}{output_dir}{Colors.RESET}")
     
-    # 选择扫描模式
+    while True:
+        print(f"\n{Colors.CYAN}请选择操作：{Colors.RESET}")
+        print(f"  {Colors.GREEN}1.{Colors.RESET} 开始扫描视频")
+        print(f"  {Colors.GREEN}2.{Colors.RESET} 修改输出目录")
+        print(f"  {Colors.GREEN}3.{Colors.RESET} 退出程序")
+        
+        try:
+            choice = input(f"\n{Colors.CYAN}请输入选项 (1-3): {Colors.RESET}").strip()
+        except EOFError:
+            print("\n未检测到输入，程序退出。")
+            break
+        
+        if choice == '1':
+            run_scan(output_dir)
+        elif choice == '2':
+            new_dir = input(f"\n请输入新的输出目录路径（直接回车保持当前设置）: ").strip()
+            if new_dir:
+                if (new_dir.startswith('"') and new_dir.endswith('"')) or \
+                   (new_dir.startswith("'") and new_dir.endswith("'")):
+                    new_dir = new_dir[1:-1].strip()
+                
+                try:
+                    new_path = Path(new_dir).expanduser()
+                    new_path.mkdir(parents=True, exist_ok=True)
+                    output_dir = new_path
+                    set_output_dir(new_path)
+                    print(f"{Colors.GREEN}[成功]{Colors.RESET} 输出目录已更新并保存: {Colors.BLUE}{output_dir}{Colors.RESET}")
+                except Exception as e:
+                    print(f"{Colors.RED}[错误] 无法创建目录: {e}{Colors.RESET}")
+            else:
+                print(f"[信息] 保持当前输出目录: {output_dir}")
+        elif choice == '3':
+            print("[退出] 程序结束。")
+            break
+        else:
+            print(f"{Colors.RED}[错误] 请输入 1-3 之间的数字{Colors.RESET}")
+
+
+def run_scan(output_dir: Path):
+    """执行扫描任务"""
     mode_config = select_scan_mode()
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_csv = output_dir / "video_scan_result.csv"
     
     while True:
         try:
-            target_folder = input("\n请输入要扫描的视频目录路径，输入 'exit' 退出：").strip()
+            target_folder = input("\n请输入要扫描的视频目录路径，输入 'exit' 返回上级：").strip()
         except EOFError:
-            print("\n未检测到输入，程序退出。")
+            print("\n未检测到输入，返回上级。")
             break
         
         if not target_folder:
             print("[错误] 目录路径不能为空，请重新输入。")
             continue
         
-        # 处理引号
         if (target_folder.startswith('"') and target_folder.endswith('"')) or \
            (target_folder.startswith("'") and target_folder.endswith("'")):
             target_folder = target_folder[1:-1].strip()
         
         if target_folder.lower() == 'exit':
-            print("[退出] 程序结束。")
             break
         
         folder = Path(target_folder).expanduser()
@@ -468,11 +550,9 @@ def main():
             print(f"[错误] 这不是一个目录 -> {target_folder}")
             continue
         
-        # 开始扫描
         print(f"\n[扫描] 正在扫描目录: {folder}")
         start_time = time.time()
         
-        # 查找所有视频文件
         print("[扫描] 正在查找视频文件...")
         video_files = find_video_files(folder)
         total_files = len(video_files)
@@ -483,11 +563,9 @@ def main():
         
         print(f"[扫描] 找到 {total_files} 个视频文件")
         
-        # 加载已有记录
         print("\n[加载] 正在检查历史记录...")
         existing_records, existing_keys = load_existing_records(output_csv)
         
-        # 过滤已处理的文件，并添加 mode_config
         new_files = []
         for file_path, source_folder, source_file in video_files:
             key = (file_path.name, source_folder)
@@ -504,12 +582,10 @@ def main():
         
         print(f"\n[处理] 开始扫描 {len(new_files)} 个新文件...")
         
-        # 使用多进程处理
-        max_workers = min(multiprocessing.cpu_count(), 4)  # MD5计算是IO密集型，不宜太多进程
+        max_workers = min(multiprocessing.cpu_count(), 4)
         print(f"[处理] 使用 {max_workers} 个并行进程")
         
-        # 增量保存配置
-        SAVE_INTERVAL = 200  # 每处理200个文件保存一次
+        SAVE_INTERVAL = 200
         last_save_count = 0
         
         results = []
@@ -536,7 +612,6 @@ def main():
                     else:
                         error_count += 1
                     
-                    # 显示进度
                     elapsed = time.time() - start_time
                     speed = completed / elapsed if elapsed > 0 else 0
                     eta = (len(new_files) - completed) / speed if speed > 0 else 0
@@ -545,7 +620,6 @@ def main():
                     print(f"\r[进度] {completed}/{len(new_files)} ({completed/len(new_files)*100:.1f}%) | "
                           f"速度: {speed:.2f}个/秒 | 剩余: {eta:.0f}秒 | {file_name}      ", end="")
                     
-                    # 增量保存：每处理 SAVE_INTERVAL 个文件保存一次
                     if completed - last_save_count >= SAVE_INTERVAL:
                         try:
                             all_records = existing_records + results
@@ -559,7 +633,7 @@ def main():
                     error_count += 1
                     print(f"\n[错误] 处理失败: {file_path.name} - {e}")
         
-        print()  # 换行
+        print()
         
         total_time = time.time() - start_time
         print(f"\n{Colors.GREEN}{Colors.BOLD}[完成]{Colors.RESET} 扫描完成！耗时 {Colors.CYAN}{total_time:.2f}{Colors.RESET} 秒")
@@ -569,7 +643,6 @@ def main():
         else:
             print(f"       - 失败: {error_count} 个")
         
-        # 最终保存（确保所有数据都已保存）
         print(f"\n{Colors.YELLOW}[保存]{Colors.RESET} 正在保存结果到: {Colors.BLUE}{output_csv}{Colors.RESET}")
         try:
             all_records = existing_records + results
@@ -580,7 +653,6 @@ def main():
             print(f"       - 历史记录: {len(existing_records)} 条")
             print(f"       - 总计记录: {Colors.BOLD}{len(all_records)}{Colors.RESET} 条")
             
-            # 绿色提示用户查看结果
             print()
             print(f"{Colors.GREEN}{Colors.BOLD}" + "*" * 50 + f"{Colors.RESET}")
             print(f"{Colors.GREEN}{Colors.BOLD}  ✔ 请到输出目录查看结果：{Colors.RESET}")
@@ -593,6 +665,7 @@ def main():
             print(f"{Colors.RED}[错误] 保存失败: {e}{Colors.RESET}")
         
         print(f"\n{Colors.CYAN}" + "=" * 70 + f"{Colors.RESET}\n")
+        break
 
 
 if __name__ == "__main__":

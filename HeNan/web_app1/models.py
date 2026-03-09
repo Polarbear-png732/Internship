@@ -50,9 +50,21 @@ class CopyrightBase(BaseModel):
         from_attributes = True
 
 
+class CustomerLicenseInput(BaseModel):
+    """客户维度授权时间输入模型"""
+    customer_code: str = Field(..., min_length=1, max_length=50, description="客户代码")
+    license_start_date: Optional[str] = Field(None, max_length=100, description="客户授权开始时间")
+    license_end_date: Optional[str] = Field(None, max_length=100, description="客户授权结束时间")
+
+
+class CustomerLicenseResponse(CustomerLicenseInput):
+    """客户维度授权时间响应模型"""
+    pass
+
+
 class CopyrightCreate(CopyrightBase):
     """创建版权数据请求模型"""
-    pass
+    customer_licenses: Optional[List[CustomerLicenseInput]] = Field(None, description="客户授权明细")
 
 
 class CopyrightUpdate(BaseModel):
@@ -89,6 +101,7 @@ class CopyrightUpdate(BaseModel):
     authorization_region: Optional[str] = Field(None, max_length=200, description="授权区域")
     authorization_platform: Optional[str] = Field(None, max_length=200, description="授权平台")
     cooperation_mode: Optional[str] = Field(None, max_length=50, description="合作方式")
+    customer_licenses: Optional[List[CustomerLicenseInput]] = Field(None, description="客户授权明细")
 
     class Config:
         from_attributes = True
@@ -98,6 +111,7 @@ class CopyrightResponse(CopyrightBase):
     """版权数据响应模型"""
     id: int
     drama_ids: Optional[Dict[str, int]] = None
+    customer_licenses: Optional[List[CustomerLicenseResponse]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

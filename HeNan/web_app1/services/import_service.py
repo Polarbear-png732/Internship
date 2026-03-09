@@ -11,6 +11,7 @@ import pymysql
 import pandas as pd
 import threading
 from datetime import datetime
+from decimal import Decimal
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from enum import Enum
@@ -61,6 +62,7 @@ class BackfillTask:
     task_id: str
     media_names: List[str] = field(default_factory=list)
     fields: List[str] = field(default_factory=list)
+    mode: str = 'only_empty'  # only_empty/recalculate_all
     status: str = "pending"  # pending/running/completed/failed
     total_media: int = 0
     processed_media: int = 0
@@ -105,7 +107,7 @@ class ExcelImportService:
     def get_task(self, task_id: str) -> Optional[ImportTask]:
         return self._tasks.get(task_id)
 
-    def create_backfill_task(self, media_names: List[str], fields: List[str]) -> BackfillTask:
+    def create_backfill_task(self, media_names: List[str], fields: List[str], mode: str = 'only_empty') -> BackfillTask:
         cleaned_media_names = []
         seen = set()
         for name in media_names or []:
@@ -114,8 +116,9 @@ class ExcelImportService:
                 seen.add(value)
                 cleaned_media_names.append(value)
 
+        normalized_mode = mode if mode in {'only_empty', 'recalculate_all'} else 'only_empty'
         valid_fields = [f for f in (fields or []) if f in {'md5', 'duration', 'size'}]
-        if not valid_fields:
+        if normalized_mode == 'recalculate_all' or not valid_fields:
             valid_fields = ['md5', 'duration', 'size']
 
         task_id = str(uuid.uuid4())
@@ -123,6 +126,7 @@ class ExcelImportService:
             task_id=task_id,
             media_names=cleaned_media_names,
             fields=valid_fields,
+            mode=normalized_mode,
             total_media=len(cleaned_media_names)
         )
         self._backfill_tasks[task_id] = task
@@ -158,6 +162,13 @@ class ExcelImportService:
                 return True
         return str(value).strip() == ''
 
+    def _can_apply_backfill_value(self, value_type: str, old_value: Any, new_value: Any, mode: str) -> bool:
+        if self._is_empty_episode_field(value_type, new_value):
+            return False
+        if mode == 'recalculate_all':
+            return str(old_value) != str(new_value)
+        return self._is_empty_episode_field(value_type, old_value)
+
     def _extract_episode_num_from_props(self, props: Dict[str, Any], episode_name: str) -> Optional[int]:
         for key in ['集数', 'volumnCount']:
             raw_value = props.get(key)
@@ -172,6 +183,174 @@ class ExcelImportService:
 
         return extract_episode_number(episode_name)
 
+    def _safe_int(self, value: Any, default: int = 0) -> int:
+        try:
+            return int(float(value or 0))
+        except (TypeError, ValueError):
+            return default
+
+    def _sanitize_for_json(self, value: Any) -> Any:
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, datetime):
+            return value.strftime('%Y-%m-%d %H:%M:%S')
+        if isinstance(value, dict):
+            return {k: self._sanitize_for_json(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._sanitize_for_json(v) for v in value]
+        return value
+
+    def _normalize_media_name(self, value: Any) -> str:
+        return re.sub(r'\s+', '', str(value or '')).strip().lower()
+
+    def _find_copyright_row_by_media_name(self, cursor, media_name: str) -> Optional[Dict[str, Any]]:
+        """按介质名称查找版权记录：先精确匹配，再做空白归一化匹配。"""
+        target = str(media_name or '').strip()
+        if not target:
+            return None
+
+        cursor.execute(
+            "SELECT * FROM copyright_content WHERE media_name = %s ORDER BY id DESC LIMIT 1",
+            (target,)
+        )
+        row = cursor.fetchone()
+        if row:
+            return row
+
+        target_variants = build_media_name_variants(target) or [target]
+        normalized_targets = {
+            self._normalize_media_name(v)
+            for v in target_variants
+            if self._normalize_media_name(v)
+        }
+        if not normalized_targets:
+            return None
+
+        cursor.execute("SELECT * FROM copyright_content ORDER BY id DESC")
+        for candidate in cursor.fetchall():
+            candidate_name = candidate.get('media_name')
+            candidate_variants = build_media_name_variants(candidate_name) or [candidate_name]
+            normalized_candidates = {
+                self._normalize_media_name(v)
+                for v in candidate_variants
+                if self._normalize_media_name(v)
+            }
+            if normalized_targets & normalized_candidates:
+                return candidate
+
+        return None
+
+    def _execute_recalculate_all_for_media(self, task: BackfillTask, conn, cursor, media_name: str) -> Dict[str, Any]:
+        """按“重新导入单条版权”的语义重算该剧：重算剧头并重建全部子集。"""
+        copyright_row = self._find_copyright_row_by_media_name(cursor, media_name)
+        if not copyright_row:
+            task.missed_episodes += 1
+            task.processed_media = task.total_media
+            return {'success': False, 'error': f'未找到版权数据：{media_name}'}
+
+        canonical_media_name = str(copyright_row.get('media_name') or media_name).strip() or media_name
+
+        episode_count = self._safe_int(copyright_row.get('episode_count'), 0)
+        enabled_customers = get_enabled_customers()
+        if not enabled_customers:
+            task.processed_media = task.total_media
+            return {'success': False, 'error': '未配置启用客户'}
+
+        scan_results = self._preload_scans(cursor, [canonical_media_name])
+        pinyin_cache = {canonical_media_name: get_pinyin_abbr(canonical_media_name)}
+
+        drama_ids_raw = copyright_row.get('drama_ids')
+        drama_ids_map = {}
+        if isinstance(drama_ids_raw, dict):
+            drama_ids_map = {k: v for k, v in drama_ids_raw.items() if v}
+        elif isinstance(drama_ids_raw, str):
+            try:
+                parsed = json.loads(drama_ids_raw)
+                if isinstance(parsed, dict):
+                    drama_ids_map = {k: v for k, v in parsed.items() if v}
+            except Exception:
+                drama_ids_map = {}
+
+        total_matched = 0
+        total_missed = 0
+        total_updated_episodes = 0
+
+        for customer_code in enabled_customers:
+            drama_id = drama_ids_map.get(customer_code)
+            drama_exists = False
+            if drama_id:
+                cursor.execute("SELECT drama_id FROM drama_main WHERE drama_id = %s", (drama_id,))
+                drama_exists = cursor.fetchone() is not None
+
+            drama_props = build_drama_props(
+                copyright_row,
+                canonical_media_name,
+                customer_code,
+                scan_results,
+                pinyin_cache
+            )
+            drama_props = self._sanitize_for_json(drama_props)
+
+            if drama_exists:
+                cursor.execute(
+                    "UPDATE drama_main SET drama_name = %s, dynamic_properties = %s WHERE drama_id = %s",
+                    (canonical_media_name, json.dumps(drama_props, ensure_ascii=False), drama_id)
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO drama_main (customer_code, drama_name, dynamic_properties) VALUES (%s, %s, %s)",
+                    (customer_code, canonical_media_name, json.dumps(drama_props, ensure_ascii=False))
+                )
+                drama_id = cursor.lastrowid
+                drama_ids_map[customer_code] = drama_id
+
+            # 校正模式采用“全删全建”，保证与单条重新导入的结果一致
+            cursor.execute("DELETE FROM drama_episode WHERE drama_id = %s", (drama_id,))
+
+            if episode_count > 0:
+                episode_rows = build_episodes(
+                    drama_id,
+                    canonical_media_name,
+                    episode_count,
+                    copyright_row,
+                    customer_code,
+                    scan_results,
+                    pinyin_cache
+                )
+                if episode_rows:
+                    cursor.executemany(
+                        "INSERT INTO drama_episode (drama_id, episode_name, dynamic_properties) VALUES (%s, %s, %s)",
+                        episode_rows
+                    )
+
+                total_updated_episodes += len(episode_rows)
+
+                abbr = pinyin_cache.get(canonical_media_name)
+                for ep in range(1, episode_count + 1):
+                    match = find_scan_match(scan_results, canonical_media_name, abbr, ep)
+                    if match:
+                        total_matched += 1
+                    else:
+                        total_missed += 1
+
+        cursor.execute(
+            "UPDATE copyright_content SET drama_ids = %s WHERE id = %s",
+            (json.dumps(drama_ids_map, ensure_ascii=False), copyright_row['id'])
+        )
+        conn.commit()
+
+        task.matched_episodes += total_matched
+        task.missed_episodes += total_missed
+        task.updated_episodes += total_updated_episodes
+        task.processed_media = task.total_media
+
+        return {
+            'success': True,
+            'matched_episodes': total_matched,
+            'missed_episodes': total_missed,
+            'updated_episodes': total_updated_episodes,
+        }
+
     def execute_backfill_sync(self, task: BackfillTask, conn) -> Dict[str, Any]:
         if not task.media_names:
             task.status = 'failed'
@@ -183,6 +362,27 @@ class ExcelImportService:
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         try:
+            if task.mode == 'recalculate_all':
+                result = self._execute_recalculate_all_for_media(task, conn, cursor, task.media_names[0])
+                if result.get('success'):
+                    task.status = 'completed'
+                    task.completed_at = datetime.now()
+                    return {
+                        'success': True,
+                        'total_media': task.total_media,
+                        'processed_media': task.processed_media,
+                        'matched_episodes': task.matched_episodes,
+                        'updated_episodes': task.updated_episodes,
+                        'missed_episodes': task.missed_episodes,
+                        'skipped_episodes': task.skipped_episodes,
+                    }
+
+                task.status = 'failed'
+                task.completed_at = datetime.now()
+                if result.get('error'):
+                    task.errors.append({'message': result.get('error')})
+                return {'success': False, 'error': result.get('error', '校正失败')}
+
             placeholders = ','.join(['%s'] * len(task.media_names))
             cursor.execute(
                 f"""
@@ -208,12 +408,13 @@ class ExcelImportService:
             scan_results = self._preload_scans(cursor, available_media_names)
             pinyin_cache = {name: get_pinyin_abbr(name) for name in available_media_names}
 
+            effective_fields = ['md5', 'duration', 'size'] if task.mode == 'recalculate_all' else task.fields
             requested_types = set()
-            if 'md5' in task.fields:
+            if 'md5' in effective_fields:
                 requested_types.add('md5')
-            if 'duration' in task.fields:
+            if 'duration' in effective_fields:
                 requested_types.update({'duration', 'duration_minutes', 'duration_seconds', 'duration_hhmmss'})
-            if 'size' in task.fields:
+            if 'size' in effective_fields:
                 requested_types.add('file_size')
 
             update_batch = []
@@ -272,32 +473,32 @@ class ExcelImportService:
 
                             if value_type == 'md5':
                                 new_value = md5_value
-                                if self._is_empty_episode_field('md5', old_value) and not self._is_empty_episode_field('md5', new_value):
+                                if self._can_apply_backfill_value('md5', old_value, new_value, task.mode):
                                     props[col_name] = new_value
                                     changed = True
                             elif value_type == 'duration':
                                 new_value = duration_formatted
-                                if self._is_empty_episode_field('duration', old_value) and not self._is_empty_episode_field('duration', new_value):
+                                if self._can_apply_backfill_value('duration', old_value, new_value, task.mode):
                                     props[col_name] = new_value
                                     changed = True
                             elif value_type == 'duration_minutes':
                                 new_value = round(duration_seconds / 60) if duration_seconds else 0
-                                if self._is_empty_episode_field('duration', old_value) and not self._is_empty_episode_field('duration', new_value):
+                                if self._can_apply_backfill_value('duration', old_value, new_value, task.mode):
                                     props[col_name] = new_value
                                     changed = True
                             elif value_type == 'duration_seconds':
                                 new_value = duration_seconds
-                                if self._is_empty_episode_field('duration', old_value) and not self._is_empty_episode_field('duration', new_value):
+                                if self._can_apply_backfill_value('duration', old_value, new_value, task.mode):
                                     props[col_name] = new_value
                                     changed = True
                             elif value_type == 'duration_hhmmss':
                                 new_value = self._duration_to_hhmmss(duration_seconds)
-                                if self._is_empty_episode_field('duration', old_value) and not self._is_empty_episode_field('duration', new_value):
+                                if self._can_apply_backfill_value('duration', old_value, new_value, task.mode):
                                     props[col_name] = new_value
                                     changed = True
                             elif value_type == 'file_size':
                                 new_value = file_size
-                                if self._is_empty_episode_field('size', old_value) and not self._is_empty_episode_field('size', new_value):
+                                if self._can_apply_backfill_value('size', old_value, new_value, task.mode):
                                     props[col_name] = new_value
                                     changed = True
 
@@ -763,15 +964,14 @@ class ExcelImportService:
                 col_type = c.get('type')
                 
                 if col_type == 'total_episodes_duration_seconds':
-                    # 计算所有子集时长之和（秒），返回四舍五入的分钟数
+                    # 计算所有子集时长之和（秒）
                     total_dur = 0
                     abbr = pinyin_cache.get(media_name) if pinyin_cache else get_pinyin_abbr(media_name)
                     if episode_count > 0:
                         for ep in range(1, episode_count + 1):
                             match = find_scan_match(scan_results, media_name, abbr, ep)
                             total_dur += match.get('duration', 0)
-                    # 使用四舍五入，299秒 -> 5分钟
-                    props[col] = round(total_dur / 60) if total_dur else 0
+                    props[col] = int(total_dur) if total_dur else 0
                     updated = True
             
             if updated:

@@ -91,8 +91,26 @@ CREATE TABLE copyright_content (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='版权方数据库表';
 
 -- ============================================
--- 4. 视频扫描结果表：存储扫描的视频文件信息
+-- 4. 客户维度授权表：存储不同客户的授权起止时间
 -- ============================================
+CREATE TABLE copyright_customer_license (
+    id INT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+    copyright_id INT NOT NULL COMMENT '关联版权表ID',
+    customer_code VARCHAR(50) NOT NULL COMMENT '客户代码',
+    license_start_date VARCHAR(100) DEFAULT NULL COMMENT '客户授权开始时间',
+    license_end_date VARCHAR(100) DEFAULT NULL COMMENT '客户授权结束时间',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_copyright_customer (copyright_id, customer_code),
+    KEY idx_customer_code (customer_code),
+    CONSTRAINT fk_license_copyright FOREIGN KEY (copyright_id) REFERENCES copyright_content(id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='版权客户授权明细表';
+
+-- ============================================
+-- 5. 视频扫描结果表：存储扫描的视频文件信息
+-- ============================================
+
 CREATE TABLE video_scan_result (
     id INT NOT NULL AUTO_INCREMENT,
     source_folder VARCHAR(255) DEFAULT NULL COMMENT '来源文件夹',

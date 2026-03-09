@@ -548,10 +548,10 @@
         </div>
     </div>
 
-    <script src="/static/js/common.js"></script>
-    <script src="/static/js/copyright.js"></script>
-    <script src="/static/js/backfill.js"></script>
-    <script src="/static/js/scan.js"></script>
+    <script src="/static/js/common.js?v=20260306a"></script>
+    <script src="/static/js/copyright.js?v=20260306a"></script>
+    <script src="/static/js/backfill.js?v=20260306b"></script>
+    <script src="/static/js/scan.js?v=20260306a"></script>
 
     <!-- 添加版权方数据模态框 -->
     <div id="add-copyright-modal" onclick="if(event.target === this) closeAddCopyrightModal()" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
@@ -769,6 +769,33 @@
                             <input type="text" id="copyright-end-date" placeholder="如：2025-12-31"
                                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
+                        <div class="md:col-span-2 lg:col-span-3">
+                            <div class="border border-slate-200 rounded-lg bg-slate-50">
+                                <button type="button" id="customer-license-toggle" onclick="toggleCustomerLicensePanel()"
+                                    class="w-full px-4 py-3 flex items-center justify-between text-left text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
+                                    <span>客户授权设置（留空则保持为空）</span>
+                                    <span id="customer-license-toggle-icon">▾</span>
+                                </button>
+                                <div id="customer-license-panel" class="px-4 pb-4">
+                                    <div class="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+                                        <table class="w-full text-left text-sm">
+                                            <thead class="bg-slate-100 border-b border-slate-200">
+                                                <tr>
+                                                    <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">客户</th>
+                                                    <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">开始时间</th>
+                                                    <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">结束时间</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="customer-license-table-body">
+                                                <tr>
+                                                    <td colspan="3" class="px-3 py-3 text-slate-500">加载客户配置中...</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         <!-- 32. 二级分类-山东 -->
                         <div>
                             <label class="block text-sm font-medium text-slate-700 mb-1">二级分类-山东</label>
@@ -796,6 +823,48 @@
                         <polyline points="20 6 9 17 4 12"/>
                     </svg>
                     保存
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 客户授权详情弹窗 -->
+    <div id="customer-license-preview-modal" onclick="if(event.target === this) closeCustomerLicensePreviewModal()" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
+        <div onclick="event.stopPropagation()" class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-cyan-50 to-blue-50 flex items-center justify-between">
+                <h3 id="customer-license-preview-title" class="text-xl font-bold text-slate-900">客户授权明细</h3>
+                <button onclick="closeCustomerLicensePreviewModal()" class="text-slate-400 hover:text-slate-600 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" x2="6" y1="6" y2="18"/>
+                        <line x1="6" x2="18" y1="6" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="px-6 py-3 bg-slate-50 border-b border-slate-200 text-sm text-slate-700">
+                客户授权明细
+            </div>
+            <div class="flex-1 overflow-y-auto p-6">
+                <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-100 border-b border-slate-200">
+                            <tr>
+                                <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">客户</th>
+                                <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">客户开始时间</th>
+                                <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">客户结束时间</th>
+                                
+                            </tr>
+                        </thead>
+                        <tbody id="customer-license-preview-body">
+                            <tr>
+                                <td colspan="3" class="px-3 py-3 text-slate-500">暂无数据</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+                <button onclick="closeCustomerLicensePreviewModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 transition-colors font-medium">
+                    关闭
                 </button>
             </div>
         </div>
@@ -1239,7 +1308,7 @@
         </div>
     </div>
 
-    <!-- 子集扫描字段回填模态框 -->
+    <!-- 子集扫描字段回填/校正模态框 -->
     <div id="backfill-modal" onclick="if(event.target === this) closeBackfillModal()" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
         <div onclick="event.stopPropagation()" class="bg-white rounded-xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col">
             <div class="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-cyan-50 to-sky-50 flex items-center justify-between">
@@ -1248,7 +1317,7 @@
                         <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
                         <path d="M12 8v4l3 3"/>
                     </svg>
-                    回填扫描字段（仅空值）
+                    回填扫描字段与校正
                 </h3>
                 <button onclick="closeBackfillModal()" class="text-slate-400 hover:text-slate-600 transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1279,6 +1348,8 @@
                         class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500">
                 </div>
 
+                <div id="backfill-selected-hint" class="hidden p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700"></div>
+
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-2">回填字段</label>
                     <div class="space-y-2">
@@ -1297,8 +1368,8 @@
                     </div>
                 </div>
 
-                <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-600">
-                    策略固定为：仅回填空值，不覆盖已有值。
+                <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-600" id="backfill-strategy-text">
+                    回填模式：仅回填空值，不覆盖已有值。
                 </div>
 
                 <div class="p-3 bg-cyan-50 border border-cyan-200 rounded-lg text-sm text-cyan-700">
@@ -1326,7 +1397,11 @@
                 <button onclick="closeBackfillModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 transition-colors font-medium">
                     关闭
                 </button>
-                <button id="backfill-start-btn" onclick="startScanBackfillTask()"
+                <button id="backfill-correct-btn" onclick="startScanBackfillTask('recalculate_all')" disabled
+                    class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors font-medium shadow-md shadow-amber-600/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                    校正（重算）
+                </button>
+                <button id="backfill-start-btn" onclick="startScanBackfillTask('only_empty')"
                     class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg transition-colors font-medium shadow-md shadow-cyan-600/20 flex items-center gap-2">
                     启动回填
                 </button>

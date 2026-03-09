@@ -18,6 +18,7 @@ let backfillTaskState = {
     taskId: null,
     pollTimer: null
 };
+let licenseCustomers = [];
 
 // 加载版权方数据列表
 async function loadCopyrightList(page = 1) {
@@ -114,6 +115,10 @@ function renderCopyrightTable(items) {
                             class="text-red-600 hover:text-red-700 font-medium text-sm inline-flex items-center gap-1 bg-red-50 hover:bg-red-100 border border-red-200 px-2 py-1 rounded-lg transition-all">
                             删除
                         </button>
+                        <button onclick="openCustomerLicensePreview(${item.id}, '${(item.media_name || '').replace(/'/g, "\\'")}', '${item.copyright_start_date || ''}', '${item.copyright_end_date || ''}')"
+                            class="text-cyan-700 hover:text-cyan-800 font-medium text-sm inline-flex items-center gap-1 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 px-2 py-1 rounded-lg transition-all">
+                            查看客户授权
+                        </button>
                     </div>
                 </td>
             </tr>
@@ -157,6 +162,7 @@ async function openAddCopyrightModal() {
     `;
     document.getElementById('copyright-edit-id').value = '';
     document.getElementById('add-copyright-form').reset();
+    await renderCustomerLicenseTable();
     
     document.getElementById('add-copyright-modal').classList.remove('hidden');
 }
@@ -167,6 +173,92 @@ function closeAddCopyrightModal() {
     // 清空edit-id，防止下次打开时误用
     document.getElementById('copyright-edit-id').value = '';
     document.getElementById('add-copyright-form').reset();
+}
+
+// 展开/收起客户授权面板
+function toggleCustomerLicensePanel() {
+    const panel = document.getElementById('customer-license-panel');
+    const icon = document.getElementById('customer-license-toggle-icon');
+    if (!panel || !icon) return;
+    panel.classList.toggle('hidden');
+    icon.textContent = panel.classList.contains('hidden') ? '▸' : '▾';
+}
+
+async function ensureLicenseCustomersLoaded() {
+    if (licenseCustomers.length > 0) return;
+    const response = await fetch(`${API_BASE}/copyright/customers`);
+    const result = await response.json();
+    if (result.code !== 200) {
+        throw new Error(result.message || '加载客户配置失败');
+    }
+    licenseCustomers = (result.data || []).filter(c => c.is_enabled);
+}
+
+function collectCustomerLicenseMap(licenses) {
+    const map = new Map();
+    (licenses || []).forEach(item => {
+        const code = (item.customer_code || '').trim();
+        if (!code) return;
+        map.set(code, {
+            start: item.license_start_date || '',
+            end: item.license_end_date || ''
+        });
+    });
+    return map;
+}
+
+async function renderCustomerLicenseTable(licenses = []) {
+    const tbody = document.getElementById('customer-license-table-body');
+    if (!tbody) return;
+
+    try {
+        await ensureLicenseCustomersLoaded();
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="3" class="px-3 py-3 text-red-600">客户配置加载失败：${error.message}</td></tr>`;
+        return;
+    }
+
+    const licenseMap = collectCustomerLicenseMap(licenses);
+    if (licenseCustomers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="px-3 py-3 text-slate-500">暂无启用客户</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = licenseCustomers.map(customer => {
+        const row = licenseMap.get(customer.code) || { start: '', end: '' };
+        return `
+            <tr class="border-b border-slate-100">
+                <td class="px-3 py-2 text-slate-700 whitespace-nowrap">${customer.name}</td>
+                <td class="px-3 py-2">
+                    <input type="text" data-customer-code="${customer.code}" data-license-field="start" value="${row.start}"
+                        placeholder="留空"
+                        class="w-full px-2 py-1.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm">
+                </td>
+                <td class="px-3 py-2">
+                    <input type="text" data-customer-code="${customer.code}" data-license-field="end" value="${row.end}"
+                        placeholder="留空"
+                        class="w-full px-2 py-1.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm">
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function collectCustomerLicensesForSave() {
+    const result = [];
+    const startInputs = Array.from(document.querySelectorAll('[data-license-field="start"]'));
+    startInputs.forEach(startInput => {
+        const code = startInput.getAttribute('data-customer-code');
+        const endInput = document.querySelector(`[data-license-field="end"][data-customer-code="${code}"]`);
+        const start = (startInput.value || '').trim();
+        const end = (endInput?.value || '').trim();
+        result.push({
+            customer_code: code,
+            license_start_date: start,
+            license_end_date: end
+        });
+    });
+    return result;
 }
 
 // 编辑版权方数据
@@ -229,6 +321,8 @@ async function editCopyrightContent(id) {
             document.getElementById('copyright-keywords').value = item.keywords || '';
             document.getElementById('copyright-recommendation').value = item.recommendation || '';
             document.getElementById('copyright-synopsis').value = item.synopsis || '';
+
+            await renderCustomerLicenseTable(item.customer_licenses || []);
             
             document.getElementById('add-copyright-modal').classList.remove('hidden');
         } else {
@@ -297,6 +391,7 @@ async function saveCopyrightContent() {
         cooperation_mode: document.getElementById('copyright-cooperation-mode').value.trim() || null,
         copyright_start_date: document.getElementById('copyright-start-date').value.trim() || null,
         copyright_end_date: document.getElementById('copyright-end-date').value.trim() || null,
+        customer_licenses: collectCustomerLicensesForSave(),
         license_number: document.getElementById('copyright-license-number').value.trim() || null,
         exclusive_status: document.getElementById('copyright-exclusive').value.trim() || null,
         rating: parseFloat(document.getElementById('copyright-rating').value) || null,
@@ -346,6 +441,41 @@ async function saveCopyrightContent() {
     } catch (error) {
         showError('保存失败：' + error.message);
     }
+}
+
+async function openCustomerLicensePreview(copyrightId, mediaName, defaultStartDate, defaultEndDate) {
+    try {
+        const response = await fetch(`${API_BASE}/copyright/${copyrightId}/licenses`);
+        const result = await response.json();
+        if (result.code !== 200) {
+            showError(result.message || '加载客户授权失败');
+            return;
+        }
+
+        const payload = result.data || {};
+        document.getElementById('customer-license-preview-title').textContent = `客户授权明细 - ${mediaName || payload.media_name || ''}`;
+        const tbody = document.getElementById('customer-license-preview-body');
+        const rows = payload.list || [];
+        if (rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="px-3 py-3 text-slate-500">暂无客户授权明细</td></tr>';
+        } else {
+            tbody.innerHTML = rows.map(row => `
+                <tr class="border-b border-slate-100">
+                    <td class="px-3 py-2 text-slate-700 whitespace-nowrap">${row.customer_name || row.customer_code || '-'}</td>
+                    <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${row.license_start_date || '-'}</td>
+                    <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${row.license_end_date || '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        document.getElementById('customer-license-preview-modal').classList.remove('hidden');
+    } catch (error) {
+        showError('加载客户授权失败：' + error.message);
+    }
+}
+
+function closeCustomerLicensePreviewModal() {
+    document.getElementById('customer-license-preview-modal').classList.add('hidden');
 }
 
 // 删除版权方数据
@@ -566,6 +696,15 @@ async function downloadImportTemplate() {
 
 // 打开导入模态框
 function openImportModal() {
+    // 先清理旧轮询，避免重置状态后继续请求 /status/null
+    if (importState.pollInterval) {
+        clearInterval(importState.pollInterval);
+    }
+    if (episodeGenerationPollInterval) {
+        clearInterval(episodeGenerationPollInterval);
+        episodeGenerationPollInterval = null;
+    }
+
     // 重置状态
     importState = {
         step: 'upload',
@@ -888,6 +1027,11 @@ async function pollImportProgress() {
     }
     
     importState.pollInterval = setInterval(async () => {
+        if (!importState.taskId || importState.taskId === 'null') {
+            clearInterval(importState.pollInterval);
+            importState.pollInterval = null;
+            return;
+        }
         try {
             const response = await fetch(`${API_BASE}/copyright/import/status/${importState.taskId}`);
             const result = await response.json();
@@ -1020,6 +1164,10 @@ function exportErrors() {
 let episodeGenerationPollInterval = null;
 
 function startEpisodeGenerationPolling() {
+    if (!importState.taskId || importState.taskId === 'null') {
+        return;
+    }
+
     if (episodeGenerationPollInterval) {
         clearInterval(episodeGenerationPollInterval);
     }
@@ -1027,6 +1175,11 @@ function startEpisodeGenerationPolling() {
     const elapsedEl = document.getElementById('complete-elapsed');
     
     episodeGenerationPollInterval = setInterval(async () => {
+        if (!importState.taskId || importState.taskId === 'null') {
+            clearInterval(episodeGenerationPollInterval);
+            episodeGenerationPollInterval = null;
+            return;
+        }
         try {
             const response = await fetch(`${API_BASE}/copyright/import/status/${importState.taskId}`);
             const result = await response.json();

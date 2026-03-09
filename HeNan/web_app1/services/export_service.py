@@ -20,6 +20,13 @@ class ExcelExportService:
     """Excel导出服务"""
 
     @staticmethod
+    def _to_text_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+        """将DataFrame统一转换为文本导出，空值保持为空字符串。"""
+        if df is None:
+            return pd.DataFrame()
+        return df.fillna('').astype(str)
+
+    @staticmethod
     def _clear_columns(sheet, headers_to_clear):
         """将指定表头列的单元格删除为真正的空单元格。"""
         if sheet.max_row < 2:
@@ -59,6 +66,8 @@ class ExcelExportService:
                 for row_idx in range(1, sheet.max_row + 1):
                     cell = sheet.cell(row=row_idx, column=col_idx)
                     cell.alignment = Alignment(wrap_text=False, vertical='center')
+                    # 全部按文本格式导出，避免前导零或长数字被Excel自动转换
+                    cell.number_format = '@'
     
     @staticmethod
     def format_jiangsu_excel(writer):
@@ -109,21 +118,27 @@ class ExcelExportService:
                 cell2.alignment = header_alignment
                 cell2.fill = header_fill
                 cell2.border = thin_border
+
+            # 江苏格式也统一设置为文本格式
+            for row_idx in range(1, sheet.max_row + 1):
+                for col_idx in range(1, sheet.max_column + 1):
+                    sheet.cell(row=row_idx, column=col_idx).number_format = '@'
     
     @staticmethod
-    def write_jiangsu_sheet_fast(writer, sheet_name: str, df: pd.DataFrame, header_format):
+    def write_jiangsu_sheet_fast(writer, sheet_name: str, df: pd.DataFrame, header_format, text_format):
         """使用xlsxwriter快速写入江苏新媒体表"""
         headers = JIANGSU_HEADERS.get(sheet_name)
         if headers is None:
             return
         df_for_sheet = df.reindex(columns=headers['row1']) if df is not None else pd.DataFrame(columns=headers['row1'])
+        df_for_sheet = ExcelExportService._to_text_dataframe(df_for_sheet)
         df_for_sheet.to_excel(writer, sheet_name=sheet_name, index=False, startrow=2, header=False)
         worksheet = writer.sheets[sheet_name]
         worksheet.write_row(0, 0, headers['row1'], header_format)
         worksheet.write_row(1, 0, headers['row2'], header_format)
         worksheet.freeze_panes(2, 0)
         for col_idx, field_name in enumerate(headers['row1']):
-            worksheet.set_column(col_idx, col_idx, JIANGSU_COL_WIDTHS.get(field_name, 15))
+            worksheet.set_column(col_idx, col_idx, JIANGSU_COL_WIDTHS.get(field_name, 15), text_format)
     
     @staticmethod
     def build_jiangsu_excel_fast(drama_df: pd.DataFrame, episode_df: pd.DataFrame, picture_df: pd.DataFrame) -> BytesIO:
@@ -138,9 +153,10 @@ class ExcelExportService:
                 'bg_color': '#E0E0E0',
                 'border': 1,
             })
-            ExcelExportService.write_jiangsu_sheet_fast(writer, '剧头', drama_df, header_format)
-            ExcelExportService.write_jiangsu_sheet_fast(writer, '子集', episode_df, header_format)
-            ExcelExportService.write_jiangsu_sheet_fast(writer, '图片', picture_df, header_format)
+            text_format = workbook.add_format({'num_format': '@'})
+            ExcelExportService.write_jiangsu_sheet_fast(writer, '剧头', drama_df, header_format, text_format)
+            ExcelExportService.write_jiangsu_sheet_fast(writer, '子集', episode_df, header_format, text_format)
+            ExcelExportService.write_jiangsu_sheet_fast(writer, '图片', picture_df, header_format, text_format)
         output.seek(0)
         return output
     
@@ -238,8 +254,8 @@ class ExcelExportService:
                     all_pictures.append(pic)
         
         # 创建DataFrame
-        drama_df = pd.DataFrame(drama_list, columns=drama_columns)
-        episode_df = pd.DataFrame(all_episodes, columns=episode_columns)
+        drama_df = ExcelExportService._to_text_dataframe(pd.DataFrame(drama_list, columns=drama_columns))
+        episode_df = ExcelExportService._to_text_dataframe(pd.DataFrame(all_episodes, columns=episode_columns))
         
         # 生成Excel
         output = BytesIO()
@@ -249,7 +265,7 @@ class ExcelExportService:
 
             if customer_code == 'jiangsu_newmedia' and all_pictures:
                 picture_columns = [col['col'] for col in config.get('picture_columns', [])]
-                picture_df = pd.DataFrame(all_pictures, columns=picture_columns)
+                picture_df = ExcelExportService._to_text_dataframe(pd.DataFrame(all_pictures, columns=picture_columns))
                 picture_df.to_excel(writer, sheet_name='图片', index=False)
 
             if customer_code == 'jiangsu_newmedia':
@@ -297,7 +313,7 @@ class ExcelExportService:
         if '剧头id' in drama_columns:
             header_dict['剧头id'] = None
         
-        header_df = pd.DataFrame([header_dict], columns=drama_columns)
+        header_df = ExcelExportService._to_text_dataframe(pd.DataFrame([header_dict], columns=drama_columns))
         
         # 构建子集数据
         episode_list = []
@@ -319,7 +335,7 @@ class ExcelExportService:
             
             episode_list.append(ep_data)
         
-        subset_df = pd.DataFrame(episode_list, columns=episode_columns)
+        subset_df = ExcelExportService._to_text_dataframe(pd.DataFrame(episode_list, columns=episode_columns))
         
         # 生成Excel
         output = BytesIO()
@@ -333,7 +349,7 @@ class ExcelExportService:
                     pic['picture_no'] = i
                     pic['vod_no'] = 1
                 picture_columns = [col['col'] for col in config.get('picture_columns', [])]
-                picture_df = pd.DataFrame(picture_data, columns=picture_columns)
+                picture_df = ExcelExportService._to_text_dataframe(pd.DataFrame(picture_data, columns=picture_columns))
                 picture_df.to_excel(writer, sheet_name='图片', index=False)
 
             if customer_code == 'jiangsu_newmedia':

@@ -9,7 +9,7 @@ import threading
 from datetime import datetime
 import pandas as pd
 from functools import lru_cache
-from pypinyin import pinyin, Style
+from pypinyin import pinyin, Style, load_phrases_dict
 from config import CUSTOMER_CONFIGS
 
 
@@ -148,14 +148,27 @@ def get_pinyin_abbr(name):
     """生成拼音首字母缩写（带LRU缓存，提升重复调用性能）"""
     if not name:
         return ""
+
+    # 常见多音词纠偏。优先级高于默认词典，避免“音乐/快乐/长大”等误读。
+    load_phrases_dict({
+        '音乐': [['yin'], ['yue']],
+        '快乐': [['kuai'], ['le']],
+        '长大': [['zhang'], ['da']],
+        '成长': [['cheng'], ['zhang']],
+    })
+
+    text = str(name)
     result = []
-    for char in name:
-        if '\u4e00' <= char <= '\u9fff':
-            py = pinyin(char, style=Style.FIRST_LETTER)
-            if py and py[0]:
-                result.append(py[0][0])
-        elif char.isalnum():
-            result.append(char.lower())
+    # 按中文块/字母数字块切分，中文块整体转拼音，保留上下文解决多音字。
+    for part in re.findall(r'[\u4e00-\u9fff]+|[A-Za-z0-9]+', text):
+        if re.fullmatch(r'[\u4e00-\u9fff]+', part):
+            py_list = pinyin(part, style=Style.FIRST_LETTER, heteronym=False)
+            for item in py_list:
+                if item and item[0]:
+                    result.append(str(item[0])[0].lower())
+        else:
+            result.append(part.lower())
+
     return ''.join(result)
 
 
@@ -671,7 +684,12 @@ def build_drama_props(data, media_name, customer_code, scan_results=None, pinyin
         if 'value' in c:
             props[col] = c['value']
         elif 'source' in c:
-            v = data.get(c['source'])
+            source_name = c.get('source')
+            # 版权起止时间不再引用主表默认值，未在客户授权中填写前保持为空
+            if source_name in ('copyright_start_date', 'copyright_end_date'):
+                v = ''
+            else:
+                v = data.get(source_name)
             # 只有配置了 default 才使用默认值
             if (v is None or v == '') and 'default' in c:
                 v = c['default']
@@ -712,15 +730,14 @@ def build_drama_props(data, media_name, customer_code, scan_results=None, pinyin
         elif c.get('type') == 'total_duration_seconds':
             props[col] = int(data.get('total_duration') or 0)
         elif c.get('type') == 'total_episodes_duration_seconds':
-            # 计算所有子集时长之和（秒），返回四舍五入的分钟数
+            # 计算所有子集时长之和（秒）
             total_dur = 0
             total_eps = int(data.get('episode_count') or 0)
             if scan_results and total_eps > 0:
                 for ep in range(1, total_eps + 1):
                     match = find_scan_match(scan_results, media_name, abbr, ep)
                     total_dur += match.get('duration', 0)
-            # 使用四舍五入，299秒 -> 5分钟
-            props[col] = round(total_dur / 60) if total_dur else 0
+            props[col] = int(total_dur) if total_dur else 0
         elif c.get('type') == 'pinyin_abbr':
             props[col] = abbr
         elif c.get('type') == 'genre':

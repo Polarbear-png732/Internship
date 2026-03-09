@@ -27,12 +27,36 @@ from models import CopyrightCreate, CopyrightUpdate, CopyrightResponse
 # 从服务层导入
 from services.copyright_service import (
     CopyrightDramaService, CopyrightQueryService,
-    COPYRIGHT_EXPORT_COLUMNS, convert_decimal, convert_row
+    COPYRIGHT_EXPORT_COLUMNS, convert_decimal, convert_row,
+    normalize_customer_licenses, upsert_customer_licenses,
+    get_customer_licenses_by_copyright_id, get_customer_licenses_map_by_copyright_ids,
+    build_customer_license_map
 )
 from services.cache_service import get_cache, CacheKeys
 from logging_config import logger
 
 router = APIRouter(prefix="/api/copyright", tags=["版权管理"])
+
+
+def _to_text_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """将DataFrame统一转换为文本导出，空值保持为空字符串。"""
+    if df is None:
+        return pd.DataFrame()
+    return df.fillna('').astype(str)
+
+
+def _build_effective_license_dates(default_start, default_end, customer_row: Dict[str, Any]) -> Dict[str, Any]:
+    """计算客户维度生效授权时间（仅使用客户填写值，不回退主表默认值）。"""
+    customer_start = customer_row.get('license_start_date') if customer_row else None
+    customer_end = customer_row.get('license_end_date') if customer_row else None
+    effective_start = customer_start if customer_start not in (None, '') else ''
+    effective_end = customer_end if customer_end not in (None, '') else ''
+    override = '是' if (customer_start not in (None, '') or customer_end not in (None, '')) else '否'
+    return {
+        'override': override,
+        'effective_start': effective_start,
+        'effective_end': effective_end
+    }
 
 # 获取缓存实例
 cache = get_cache()
@@ -103,7 +127,7 @@ def download_import_template():
     # 使用导出的列名顺序创建空的DataFrame，只有表头
     columns = list(COPYRIGHT_EXPORT_COLUMNS.values())
     
-    df = pd.DataFrame(columns=columns)
+    df = _to_text_dataframe(pd.DataFrame(columns=columns))
     
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -111,6 +135,7 @@ def download_import_template():
         
         workbook = writer.book
         worksheet = writer.sheets['版权方数据模板']
+        text_format = workbook.add_format({'num_format': '@'})
         
         # 设置列宽（与导出API保持一致）
         col_widths = {
@@ -152,7 +177,7 @@ def download_import_template():
         # 应用列宽
         for i, col_name in enumerate(columns):
             width = col_widths.get(col_name, 12)
-            worksheet.set_column(i, i, width)
+            worksheet.set_column(i, i, width, text_format)
         
         # 设置表头格式
         header_format = workbook.add_format({
@@ -187,12 +212,23 @@ def export_copyright_to_excel():
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         cursor.execute("SELECT * FROM copyright_content ORDER BY id")
         items = cursor.fetchall()
+        license_map = get_customer_licenses_map_by_copyright_ids(cursor, [row['id'] for row in items])
     
     export_data = []
     for item in items:
         row = {}
         for db_col, cn_col in COPYRIGHT_EXPORT_COLUMNS.items():
             value = item.get(db_col, '')
+
+            # 集数统一导出为整数，避免出现 30.0 / 7.0
+            if db_col == 'episode_count':
+                if value is not None and value != '':
+                    try:
+                        value = int(float(value))
+                    except (ValueError, TypeError):
+                        value = ''
+                else:
+                    value = ''
             
             # 将单集时长和总时长转换为整数
             if db_col in ['single_episode_duration', 'total_duration']:
@@ -212,15 +248,44 @@ def export_copyright_to_excel():
             row[cn_col] = value
         export_data.append(row)
     
-    df = pd.DataFrame(export_data, columns=list(COPYRIGHT_EXPORT_COLUMNS.values()))
+    df = _to_text_dataframe(pd.DataFrame(export_data, columns=list(COPYRIGHT_EXPORT_COLUMNS.values())))
     
+    detail_rows = []
+    for item in items:
+        item_id = item.get('id')
+        media_name = item.get('media_name')
+        default_start = item.get('copyright_start_date')
+        default_end = item.get('copyright_end_date')
+        customer_rows = license_map.get(item_id, [])
+        for row in customer_rows:
+            customer_code = row.get('customer_code')
+            customer_name = CUSTOMER_CONFIGS.get(customer_code, {}).get('name', customer_code)
+            effective = _build_effective_license_dates(default_start, default_end, row)
+            detail_rows.append({
+                '版权ID': item_id,
+                '介质名称': media_name,
+                '客户名称': customer_name,
+                '客户授权开始时间': row.get('license_start_date') or '',
+                '客户授权结束时间': row.get('license_end_date') or '',
+                '是否覆盖默认': effective['override'],
+                '生效开始时间': effective['effective_start'] or '',
+                '生效结束时间': effective['effective_end'] or '',
+            })
+
+    detail_df = _to_text_dataframe(pd.DataFrame(
+        detail_rows,
+        columns=['版权ID', '介质名称', '客户名称', '客户授权开始时间', '客户授权结束时间', '是否覆盖默认', '生效开始时间', '生效结束时间']
+    ))
+
     output = BytesIO()
     # 使用 xlsxwriter 引擎，性能更好
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, sheet_name='版权方数据', index=False)
+        detail_df.to_excel(writer, sheet_name='客户授权明细', index=False)
         
         workbook = writer.book
         worksheet = writer.sheets['版权方数据']
+        text_format = workbook.add_format({'num_format': '@'})
         
         # 设置列宽（按照数据库表结构顺序，不包含序号(自定义)）
         col_widths = {
@@ -261,7 +326,7 @@ def export_copyright_to_excel():
         
         for idx, col_name in enumerate(df.columns):
             width = col_widths.get(col_name, 15)
-            worksheet.set_column(idx, idx, width)
+            worksheet.set_column(idx, idx, width, text_format)
         
         # 设置表头格式
         header_format = workbook.add_format({
@@ -273,6 +338,22 @@ def export_copyright_to_excel():
         
         # 冻结首行
         worksheet.freeze_panes(1, 0)
+
+        detail_ws = writer.sheets['客户授权明细']
+        detail_col_widths = {
+            '版权ID': 10,
+            '介质名称': 25,
+            '客户名称': 12,
+            '客户授权开始时间': 18,
+            '客户授权结束时间': 18,
+            '是否覆盖默认': 12,
+            '生效开始时间': 18,
+            '生效结束时间': 18,
+        }
+        for idx, col_name in enumerate(detail_df.columns):
+            detail_ws.set_column(idx, idx, detail_col_widths.get(col_name, 16), text_format)
+            detail_ws.write(0, idx, col_name, header_format)
+        detail_ws.freeze_panes(1, 0)
     
     output.seek(0)
     return StreamingResponse(
@@ -304,7 +385,44 @@ def get_copyright_detail(item_id: int):
         item = cursor.fetchone()
         if not item:
             raise HTTPException(status_code=404, detail="数据不存在")
+        item['customer_licenses'] = get_customer_licenses_by_copyright_id(cursor, item_id)
         return {"code": 200, "message": "success", "data": item}
+
+
+@router.get("/{item_id}/licenses")
+def get_copyright_customer_licenses(item_id: int):
+    """获取指定版权记录的客户授权明细。"""
+    with get_db() as conn:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute("SELECT id, media_name, copyright_start_date, copyright_end_date FROM copyright_content WHERE id = %s", (item_id,))
+        item = cursor.fetchone()
+        if not item:
+            raise HTTPException(status_code=404, detail="数据不存在")
+
+        rows = get_customer_licenses_by_copyright_id(cursor, item_id)
+        license_map = {row.get('customer_code'): row for row in rows}
+        result = []
+        for customer_code, cfg in CUSTOMER_CONFIGS.items():
+            if not cfg.get('is_enabled', True):
+                continue
+            row = license_map.get(customer_code, {})
+            customer_name = cfg.get('name', customer_code)
+            result.append({
+                'customer_code': customer_code,
+                'customer_name': customer_name,
+                'license_start_date': row.get('license_start_date') or '',
+                'license_end_date': row.get('license_end_date') or '',
+            })
+
+        return {
+            'code': 200,
+            'message': 'success',
+            'data': {
+                'copyright_id': item_id,
+                'media_name': item.get('media_name'),
+                'list': result
+            }
+        }
 
 
 @router.post("")
@@ -323,6 +441,9 @@ def create_copyright(data: Dict[str, Any] = Body(...)):
     if episode_count <= 0:
         raise HTTPException(status_code=400, detail="集数为必填项，且必须大于0")
     data['episode_count'] = episode_count
+    customer_licenses = normalize_customer_licenses(data.get('customer_licenses'))
+    if customer_licenses:
+        data['_customer_license_map'] = build_customer_license_map(customer_licenses)
     
     media_name = data['media_name']
     
@@ -353,6 +474,8 @@ def create_copyright(data: Dict[str, Any] = Body(...)):
             )
             
             copyright_id = cursor.lastrowid
+            if customer_licenses:
+                upsert_customer_licenses(cursor, copyright_id, customer_licenses)
             conn.commit()
             
             # 清除版权列表缓存
@@ -366,6 +489,7 @@ def create_copyright(data: Dict[str, Any] = Body(...)):
                 "data": {
                     "copyright_id": copyright_id,
                     "drama_ids": drama_ids,
+                    "customer_licenses_count": len(customer_licenses),
                     "customers_count": len(drama_ids),
                     "elapsed_time": f"{elapsed_time:.3f}s"
                 }
@@ -393,6 +517,10 @@ def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
         # 保存原数据用于增量更新比较
         old_media_name = item.get('media_name')
         old_episode_count = int(item.get('episode_count') or 0)
+        existing_customer_licenses = get_customer_licenses_by_copyright_id(cursor, item_id)
+        existing_license_map = build_customer_license_map(existing_customer_licenses)
+        incoming_customer_licenses = normalize_customer_licenses(data.get('customer_licenses'))
+        incoming_license_map = build_customer_license_map(incoming_customer_licenses)
         
         try:
             # 1. 更新版权方表
@@ -410,6 +538,9 @@ def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
             merged_data = dict(item)
             merged_data.update(data)
             media_name = merged_data.get('media_name')
+            effective_license_map = dict(existing_license_map)
+            effective_license_map.update(incoming_license_map)
+            merged_data['_customer_license_map'] = effective_license_map
             
             # 3. 获取现有的 drama_ids
             drama_ids_raw = item.get('drama_ids')
@@ -447,6 +578,9 @@ def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
                 "UPDATE copyright_content SET drama_ids = %s WHERE id = %s",
                 (json.dumps(drama_ids), item_id)
             )
+
+            if incoming_customer_licenses:
+                upsert_customer_licenses(cursor, item_id, incoming_customer_licenses)
             
             conn.commit()
             
@@ -462,6 +596,7 @@ def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
                 "data": {
                     "id": item_id, 
                     "drama_ids": drama_ids,
+                    "customer_licenses_count": len(effective_license_map),
                     "stats": total_stats,
                     "elapsed_time": f"{elapsed_time:.3f}s"
                 }
@@ -785,14 +920,19 @@ async def start_scan_field_backfill(
     background_tasks: BackgroundTasks,
     payload: Dict[str, Any] = Body(...)
 ):
-    """启动子集扫描字段回填任务（仅回填空值）"""
+    """启动子集扫描字段回填任务（仅空值回填/单剧校正重算）。"""
     media_names = payload.get('media_names') or []
     fields = payload.get('fields') or ['md5', 'duration', 'size']
+    mode = payload.get('mode') or 'only_empty'
 
     if not isinstance(media_names, list) or not media_names:
         raise HTTPException(status_code=400, detail='media_names 不能为空')
+    if mode not in {'only_empty', 'recalculate_all'}:
+        raise HTTPException(status_code=400, detail='mode 仅支持 only_empty 或 recalculate_all')
+    if mode == 'recalculate_all' and len(media_names) != 1:
+        raise HTTPException(status_code=400, detail='recalculate_all 模式仅支持单个剧名')
 
-    task = import_service.create_backfill_task(media_names=media_names, fields=fields)
+    task = import_service.create_backfill_task(media_names=media_names, fields=fields, mode=mode)
     if task.total_media <= 0:
         raise HTTPException(status_code=400, detail='未提供有效剧名')
 
@@ -805,7 +945,7 @@ async def start_scan_field_backfill(
             'task_id': task.task_id,
             'total_media': task.total_media,
             'fields': task.fields,
-            'mode': 'only_empty'
+            'mode': task.mode
         }
     }
 
@@ -829,6 +969,7 @@ def get_scan_field_backfill_status(task_id: str):
             'processed_media': task.processed_media,
             'percentage': percentage,
             'fields': task.fields,
+            'mode': task.mode,
             'matched_episodes': task.matched_episodes,
             'updated_episodes': task.updated_episodes,
             'skipped_episodes': task.skipped_episodes,

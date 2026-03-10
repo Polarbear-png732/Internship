@@ -16,13 +16,13 @@ DB_CONFIG = {
 
 # 版权方数据字段（用于API）
 COPYRIGHT_FIELDS = [
-    'media_name', 'upstream_copyright', 'category_level1', 'category_level2',
-    'category_level1_henan', 'category_level2_henan', 'episode_count', 
+    'media_name', 'upstream_copyright', 'operator_name', 'category_level1', 'category_level2',
+    'episode_count',
     'single_episode_duration', 'total_duration', 'production_year', 'premiere_date',
     'production_region', 'language', 'language_henan', 'country', 'director', 
     'screenwriter', 'cast_members', 'author', 'recommendation', 'synopsis', 
     'keywords', 'video_quality', 'license_number', 'rating', 'exclusive_status', 
-    'copyright_start_date', 'copyright_end_date', 'category_level2_shandong', 
+    'copyright_start_date', 'copyright_end_date',
     'authorization_region', 'authorization_platform', 'cooperation_mode'
 ]
 
@@ -45,7 +45,7 @@ CUSTOMER_CONFIGS = {
             {'col': '清晰度', 'value': 1},
             {'col': '语言', 'source': 'language_henan', 'default': '简体中文'},
             {'col': '主演', 'source': 'cast_members', 'default': ''},
-            {'col': '内容类型', 'source': 'category_level1_henan', 'default': '少儿'},
+            {'col': '内容类型', 'source': 'category_level1', 'default': '少儿'},
             {'col': '上映年份', 'source': 'production_year'},
             {'col': '关键字', 'source': 'keywords', 'default': ''},
             {'col': '评分', 'source': 'rating'},
@@ -56,7 +56,7 @@ CUSTOMER_CONFIGS = {
             {'col': '描述', 'source': 'synopsis', 'default': ''},
             {'col': '横图', 'type': 'image', 'image_type': 'horizontal'},
             {'col': '版权', 'value': 1},
-            {'col': '二级分类', 'source': 'category_level2_henan', 'default': ''},
+            {'col': '二级分类', 'source': 'category_level2', 'default': ''},
         ],
         
         # 子集字段配置
@@ -97,7 +97,7 @@ CUSTOMER_CONFIGS = {
             {'col': '总集数', 'source': 'episode_count'},
             {'col': '主演', 'source': 'cast_members', 'separator': '|'},
             {'col': '一级分类', 'value': '电竞'},
-            {'col': '二级分类', 'source': 'category_level2_shandong'},
+            {'col': '二级分类', 'source': 'category_level2'},
             {'col': '国家地区', 'source': 'country'},
             {'col': '上映年份', 'source': 'production_year'},
             {'col': '语言', 'source': 'language'},

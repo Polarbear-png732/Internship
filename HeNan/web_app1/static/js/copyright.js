@@ -18,18 +18,38 @@ let backfillTaskState = {
     taskId: null,
     pollTimer: null
 };
-let licenseCustomers = [];
+
+function getCopyrightFilterParams() {
+    return {
+        keyword: document.getElementById('copyright-search-input')?.value?.trim() || '',
+        upstream_copyright: document.getElementById('copyright-filter-upstream')?.value?.trim() || '',
+        category_level1: document.getElementById('copyright-filter-category1')?.value?.trim() || '',
+        operator_name: document.getElementById('copyright-filter-operator')?.value?.trim() || ''
+    };
+}
+
+function buildCopyrightQuery(params) {
+    const query = new URLSearchParams();
+    Object.entries(params || {}).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && String(v).trim() !== '') {
+            query.set(k, v);
+        }
+    });
+    return query.toString();
+}
 
 // 加载版权方数据列表
 async function loadCopyrightList(page = 1) {
     copyrightCurrentPage = page;
-    const keyword = document.getElementById('copyright-search-input')?.value?.trim() || '';
+    const filters = getCopyrightFilterParams();
     
     try {
-        let url = `${API_BASE}/copyright?page=${page}&page_size=${pageSize}`;
-        if (keyword) {
-            url += `&keyword=${encodeURIComponent(keyword)}`;
-        }
+        const query = buildCopyrightQuery({
+            page,
+            page_size: pageSize,
+            ...filters
+        });
+        const url = `${API_BASE}/copyright?${query}`;
         
         const response = await fetch(url);
         const result = await response.json();
@@ -52,15 +72,56 @@ function searchCopyrightContent() {
 
 // 导出版权方数据
 function exportCopyrightData() {
-    window.location.href = '/api/copyright/export';
+    const filters = getCopyrightFilterParams();
+    const query = buildCopyrightQuery(filters);
+    window.location.href = query ? `/api/copyright/export?${query}` : '/api/copyright/export';
 }
+
+function toggleCopyrightFilterPanel() {
+    const panel = document.getElementById('copyright-filter-panel');
+    if (!panel) return;
+    panel.classList.toggle('hidden');
+}
+
+function closeCopyrightFilterPanel() {
+    const panel = document.getElementById('copyright-filter-panel');
+    if (!panel) return;
+    panel.classList.add('hidden');
+}
+
+function resetCopyrightFilters() {
+    const upstream = document.getElementById('copyright-filter-upstream');
+    const category = document.getElementById('copyright-filter-category1');
+    const operator = document.getElementById('copyright-filter-operator');
+    if (upstream) upstream.value = '';
+    if (category) category.value = '';
+    if (operator) operator.value = '';
+    loadCopyrightList(1);
+}
+
+function applyCopyrightFilters() {
+    loadCopyrightList(1);
+}
+
+// 点击筛选面板外区域时自动关闭，提升交互完整性。
+document.addEventListener('click', (event) => {
+    const panel = document.getElementById('copyright-filter-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+
+    const clickedTrigger = event.target.closest('.filter-trigger');
+    if (clickedTrigger) return;
+
+    if (!panel.contains(event.target)) {
+        closeCopyrightFilterPanel();
+    }
+});
 
 // 渲染版权方数据表格
 function renderCopyrightTable(items) {
     const tbody = document.getElementById('copyright-table-body');
     
     if (!items || items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="34" class="px-6 py-12 text-center text-slate-500"><div class="flex flex-col items-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg><span class="text-base">暂无版权方数据</span></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="32" class="px-6 py-12 text-center text-slate-500"><div class="flex flex-col items-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg><span class="text-base">暂无版权方数据</span></div></td></tr>';
         return;
     }
     
@@ -75,10 +136,9 @@ function renderCopyrightTable(items) {
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.serial_number || item.id || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${truncate(item.upstream_copyright, 15)}</td>
                 <td class="px-4 py-3 text-sm font-medium text-slate-900 whitespace-nowrap">${truncate(item.media_name, 20)}</td>
+                <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.operator_name || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level1 || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level2 || '-'}</td>
-                <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level1_henan || '-'}</td>
-                <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level2_henan || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.episode_count || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.single_episode_duration || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.total_duration || '-'}</td>
@@ -104,7 +164,6 @@ function renderCopyrightTable(items) {
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.exclusive_status || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.copyright_start_date || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.copyright_end_date || '-'}</td>
-                <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.category_level2_shandong || '-'}</td>
                 <td class="px-4 py-3 text-right whitespace-nowrap sticky right-0 ${rowClass} group-hover:bg-blue-50/50">
                     <div class="flex items-center justify-end gap-2">
                         <button onclick="editCopyrightContent(${item.id})" 
@@ -114,10 +173,6 @@ function renderCopyrightTable(items) {
                         <button onclick="deleteCopyrightContent(${item.id}, '${(item.media_name || '').replace(/'/g, "\\'")}')" 
                             class="text-red-600 hover:text-red-700 font-medium text-sm inline-flex items-center gap-1 bg-red-50 hover:bg-red-100 border border-red-200 px-2 py-1 rounded-lg transition-all">
                             删除
-                        </button>
-                        <button onclick="openCustomerLicensePreview(${item.id}, '${(item.media_name || '').replace(/'/g, "\\'")}', '${item.copyright_start_date || ''}', '${item.copyright_end_date || ''}')"
-                            class="text-cyan-700 hover:text-cyan-800 font-medium text-sm inline-flex items-center gap-1 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 px-2 py-1 rounded-lg transition-all">
-                            查看客户授权
                         </button>
                     </div>
                 </td>
@@ -162,7 +217,7 @@ async function openAddCopyrightModal() {
     `;
     document.getElementById('copyright-edit-id').value = '';
     document.getElementById('add-copyright-form').reset();
-    await renderCustomerLicenseTable();
+    document.getElementById('copyright-operator-name').value = '';
     
     document.getElementById('add-copyright-modal').classList.remove('hidden');
 }
@@ -175,91 +230,6 @@ function closeAddCopyrightModal() {
     document.getElementById('add-copyright-form').reset();
 }
 
-// 展开/收起客户授权面板
-function toggleCustomerLicensePanel() {
-    const panel = document.getElementById('customer-license-panel');
-    const icon = document.getElementById('customer-license-toggle-icon');
-    if (!panel || !icon) return;
-    panel.classList.toggle('hidden');
-    icon.textContent = panel.classList.contains('hidden') ? '▸' : '▾';
-}
-
-async function ensureLicenseCustomersLoaded() {
-    if (licenseCustomers.length > 0) return;
-    const response = await fetch(`${API_BASE}/copyright/customers`);
-    const result = await response.json();
-    if (result.code !== 200) {
-        throw new Error(result.message || '加载客户配置失败');
-    }
-    licenseCustomers = (result.data || []).filter(c => c.is_enabled);
-}
-
-function collectCustomerLicenseMap(licenses) {
-    const map = new Map();
-    (licenses || []).forEach(item => {
-        const code = (item.customer_code || '').trim();
-        if (!code) return;
-        map.set(code, {
-            start: item.license_start_date || '',
-            end: item.license_end_date || ''
-        });
-    });
-    return map;
-}
-
-async function renderCustomerLicenseTable(licenses = []) {
-    const tbody = document.getElementById('customer-license-table-body');
-    if (!tbody) return;
-
-    try {
-        await ensureLicenseCustomersLoaded();
-    } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="3" class="px-3 py-3 text-red-600">客户配置加载失败：${error.message}</td></tr>`;
-        return;
-    }
-
-    const licenseMap = collectCustomerLicenseMap(licenses);
-    if (licenseCustomers.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="px-3 py-3 text-slate-500">暂无启用客户</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = licenseCustomers.map(customer => {
-        const row = licenseMap.get(customer.code) || { start: '', end: '' };
-        return `
-            <tr class="border-b border-slate-100">
-                <td class="px-3 py-2 text-slate-700 whitespace-nowrap">${customer.name}</td>
-                <td class="px-3 py-2">
-                    <input type="text" data-customer-code="${customer.code}" data-license-field="start" value="${row.start}"
-                        placeholder="留空"
-                        class="w-full px-2 py-1.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm">
-                </td>
-                <td class="px-3 py-2">
-                    <input type="text" data-customer-code="${customer.code}" data-license-field="end" value="${row.end}"
-                        placeholder="留空"
-                        class="w-full px-2 py-1.5 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm">
-                </td>
-            </tr>
-        `;
-    }).join('');
-}
-
-function collectCustomerLicensesForSave() {
-    const result = [];
-    const startInputs = Array.from(document.querySelectorAll('[data-license-field="start"]'));
-    startInputs.forEach(startInput => {
-        const code = startInput.getAttribute('data-customer-code');
-        const endInput = document.querySelector(`[data-license-field="end"][data-customer-code="${code}"]`);
-        const start = (startInput.value || '').trim();
-        const end = (endInput?.value || '').trim();
-        result.push({
-            customer_code: code,
-            license_start_date: start,
-            license_end_date: end
-        });
-    });
-    return result;
-}
 
 // 编辑版权方数据
 async function editCopyrightContent(id) {
@@ -282,6 +252,7 @@ async function editCopyrightContent(id) {
             
             // 基本信息
             document.getElementById('copyright-media-name').value = item.media_name || '';
+            document.getElementById('copyright-operator-name').value = item.operator_name || '';
             document.getElementById('copyright-upstream').value = item.upstream_copyright || '';
             document.getElementById('copyright-episode-count').value = item.episode_count || '';
             document.getElementById('copyright-single-duration').value = item.single_episode_duration || '';
@@ -297,9 +268,6 @@ async function editCopyrightContent(id) {
             // 分类信息
             document.getElementById('copyright-category1').value = item.category_level1 || '';
             document.getElementById('copyright-category2').value = item.category_level2 || '';
-            document.getElementById('copyright-category1-henan').value = item.category_level1_henan || '';
-            document.getElementById('copyright-category2-henan').value = item.category_level2_henan || '';
-            document.getElementById('copyright-category2-shandong').value = item.category_level2_shandong || '';
             
             // 版权信息
             document.getElementById('copyright-authorization-region').value = item.authorization_region || '';
@@ -322,8 +290,6 @@ async function editCopyrightContent(id) {
             document.getElementById('copyright-recommendation').value = item.recommendation || '';
             document.getElementById('copyright-synopsis').value = item.synopsis || '';
 
-            await renderCustomerLicenseTable(item.customer_licenses || []);
-            
             document.getElementById('add-copyright-modal').classList.remove('hidden');
         } else {
             showError('获取数据失败：' + result.message);
@@ -346,6 +312,11 @@ async function saveCopyrightContent() {
         showError('介质名称不能为空');
         return;
     }
+        const operatorName = document.getElementById('copyright-operator-name').value.trim();
+        if (!operatorName) {
+            showError('运营商不能为空');
+            return;
+        }
 
     if (isCreateMode && !episodeCountRaw) {
         showError('集数为必填项');
@@ -366,6 +337,7 @@ async function saveCopyrightContent() {
     const data = {
         // 基本信息
         media_name: mediaName,
+            operator_name: operatorName,
         upstream_copyright: document.getElementById('copyright-upstream').value.trim() || null,
         episode_count: episodeCount,
         single_episode_duration: parseFloat(document.getElementById('copyright-single-duration').value) || null,
@@ -381,9 +353,6 @@ async function saveCopyrightContent() {
         // 分类信息
         category_level1: document.getElementById('copyright-category1').value.trim() || null,
         category_level2: document.getElementById('copyright-category2').value.trim() || null,
-        category_level1_henan: document.getElementById('copyright-category1-henan').value.trim() || null,
-        category_level2_henan: document.getElementById('copyright-category2-henan').value.trim() || null,
-        category_level2_shandong: document.getElementById('copyright-category2-shandong').value.trim() || null,
         
         // 版权信息
         authorization_region: document.getElementById('copyright-authorization-region').value.trim() || null,
@@ -391,7 +360,6 @@ async function saveCopyrightContent() {
         cooperation_mode: document.getElementById('copyright-cooperation-mode').value.trim() || null,
         copyright_start_date: document.getElementById('copyright-start-date').value.trim() || null,
         copyright_end_date: document.getElementById('copyright-end-date').value.trim() || null,
-        customer_licenses: collectCustomerLicensesForSave(),
         license_number: document.getElementById('copyright-license-number').value.trim() || null,
         exclusive_status: document.getElementById('copyright-exclusive').value.trim() || null,
         rating: parseFloat(document.getElementById('copyright-rating').value) || null,
@@ -441,41 +409,6 @@ async function saveCopyrightContent() {
     } catch (error) {
         showError('保存失败：' + error.message);
     }
-}
-
-async function openCustomerLicensePreview(copyrightId, mediaName, defaultStartDate, defaultEndDate) {
-    try {
-        const response = await fetch(`${API_BASE}/copyright/${copyrightId}/licenses`);
-        const result = await response.json();
-        if (result.code !== 200) {
-            showError(result.message || '加载客户授权失败');
-            return;
-        }
-
-        const payload = result.data || {};
-        document.getElementById('customer-license-preview-title').textContent = `客户授权明细 - ${mediaName || payload.media_name || ''}`;
-        const tbody = document.getElementById('customer-license-preview-body');
-        const rows = payload.list || [];
-        if (rows.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3" class="px-3 py-3 text-slate-500">暂无客户授权明细</td></tr>';
-        } else {
-            tbody.innerHTML = rows.map(row => `
-                <tr class="border-b border-slate-100">
-                    <td class="px-3 py-2 text-slate-700 whitespace-nowrap">${row.customer_name || row.customer_code || '-'}</td>
-                    <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${row.license_start_date || '-'}</td>
-                    <td class="px-3 py-2 text-slate-600 whitespace-nowrap">${row.license_end_date || '-'}</td>
-                </tr>
-            `).join('');
-        }
-
-        document.getElementById('customer-license-preview-modal').classList.remove('hidden');
-    } catch (error) {
-        showError('加载客户授权失败：' + error.message);
-    }
-}
-
-function closeCustomerLicensePreviewModal() {
-    document.getElementById('customer-license-preview-modal').classList.add('hidden');
 }
 
 // 删除版权方数据

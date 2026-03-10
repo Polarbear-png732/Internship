@@ -10,7 +10,8 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pathlib import Path
 
-from routers import customers, dramas, episodes, copyright, scan_result
+from routers import customers, dramas, episodes, copyright, scan_result, notify
+from services.notify_service import start_notify_scheduler, stop_notify_scheduler
 from logging_config import logger
 
 # ============================================================
@@ -106,6 +107,19 @@ app.include_router(dramas.router)
 app.include_router(episodes.router)
 app.include_router(copyright.router)
 app.include_router(scan_result.router)
+app.include_router(notify.router)
+
+
+@app.on_event("startup")
+async def on_startup():
+    """启动应用内邮件提醒调度器。"""
+    start_notify_scheduler()
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """停止应用内邮件提醒调度器。"""
+    stop_notify_scheduler()
 
 
 @app.get("/")

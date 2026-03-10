@@ -17,6 +17,7 @@ const API_BASE = '/api';
 
 // 全局状态变量
 let pageSize = 10;
+const SIDEBAR_COLLAPSE_KEY = 'app.sidebar.collapsed';
 let currentDramaName = '';
 let currentDramaId = null;
 let currentCustomerId = null;
@@ -28,8 +29,29 @@ let currentEpisodeColumns = [];  // 当前客户的子集列配置
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
+    initializeSidebarState();
     loadCustomerList();
 });
+
+function applySidebarState(collapsed) {
+    const app = document.getElementById('app');
+    if (!app) return;
+
+    app.classList.toggle('sidebar-collapsed', collapsed);
+}
+
+function initializeSidebarState() {
+    const collapsed = localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === '1';
+    applySidebarState(collapsed);
+}
+
+function toggleSidebar() {
+    const app = document.getElementById('app');
+    if (!app) return;
+    const collapsed = !app.classList.contains('sidebar-collapsed');
+    applySidebarState(collapsed);
+    localStorage.setItem(SIDEBAR_COLLAPSE_KEY, collapsed ? '1' : '0');
+}
 
 // 显示页面
 function showPage(pageId) {
@@ -67,6 +89,8 @@ function showPage(pageId) {
             headerTitle.textContent = currentCustomerName ? `${currentCustomerName} - 剧头管理` : '剧头管理中心';
         } else if (pageId === 'copyright-management') {
             headerTitle.textContent = '版权方数据管理';
+        } else if (pageId === 'notify-settings') {
+            headerTitle.textContent = '邮件提醒配置';
         } else if (pageId === 'placeholder') {
             headerTitle.textContent = '等待增加的模块';
         }
@@ -85,6 +109,11 @@ function showPage(pageId) {
     // 如果是版权方数据页面，加载列表
     if (pageId === 'copyright-management') {
         loadCopyrightList(1);
+    }
+
+    // 如果是邮件提醒页面，加载配置与预览
+    if (pageId === 'notify-settings' && typeof loadNotifyPageData === 'function') {
+        loadNotifyPageData();
     }
 }
 

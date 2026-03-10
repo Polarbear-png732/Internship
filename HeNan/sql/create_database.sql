@@ -54,10 +54,9 @@ CREATE TABLE copyright_content (
     serial_number INT DEFAULT NULL COMMENT '序号',
     upstream_copyright VARCHAR(200) DEFAULT NULL COMMENT '上游版权方',
     media_name VARCHAR(500) DEFAULT NULL COMMENT '介质名称',
+    operator_name VARCHAR(100) DEFAULT NULL COMMENT '运营商（如河南移动、山东移动）',
     category_level1 VARCHAR(100) DEFAULT NULL COMMENT '一级分类',
     category_level2 VARCHAR(100) DEFAULT NULL COMMENT '二级分类',
-    category_level1_henan VARCHAR(100) DEFAULT NULL COMMENT '一级分类-河南标准',
-    category_level2_henan VARCHAR(100) DEFAULT NULL COMMENT '二级分类-河南标准',
     episode_count INT DEFAULT NULL COMMENT '集数',
     single_episode_duration DECIMAL(10,2) DEFAULT NULL COMMENT '单集时长',
     total_duration DECIMAL(10,2) DEFAULT NULL COMMENT '总时长',
@@ -83,32 +82,15 @@ CREATE TABLE copyright_content (
     exclusive_status VARCHAR(50) DEFAULT NULL COMMENT '独家/非独',
     copyright_start_date VARCHAR(100) DEFAULT NULL COMMENT '版权开始时间',
     copyright_end_date VARCHAR(100) DEFAULT NULL COMMENT '版权结束时间',
-    category_level2_shandong VARCHAR(100) DEFAULT NULL COMMENT '二级分类-山东标准',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (id),
-    UNIQUE KEY idx_media_name_unique (media_name)
+    UNIQUE KEY uk_media_operator (media_name, operator_name),
+    KEY idx_media_name (media_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='版权方数据库表';
 
 -- ============================================
--- 4. 客户维度授权表：存储不同客户的授权起止时间
--- ============================================
-CREATE TABLE copyright_customer_license (
-    id INT NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    copyright_id INT NOT NULL COMMENT '关联版权表ID',
-    customer_code VARCHAR(50) NOT NULL COMMENT '客户代码',
-    license_start_date VARCHAR(100) DEFAULT NULL COMMENT '客户授权开始时间',
-    license_end_date VARCHAR(100) DEFAULT NULL COMMENT '客户授权结束时间',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_copyright_customer (copyright_id, customer_code),
-    KEY idx_customer_code (customer_code),
-    CONSTRAINT fk_license_copyright FOREIGN KEY (copyright_id) REFERENCES copyright_content(id) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='版权客户授权明细表';
-
--- ============================================
--- 5. 视频扫描结果表：存储扫描的视频文件信息
+-- 4. 视频扫描结果表：存储扫描的视频文件信息
 -- ============================================
 
 CREATE TABLE video_scan_result (

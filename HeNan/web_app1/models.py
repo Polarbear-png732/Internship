@@ -15,10 +15,9 @@ class CopyrightBase(BaseModel):
     """版权数据基础模型"""
     media_name: str = Field(..., min_length=1, max_length=200, description="介质名称")
     upstream_copyright: Optional[str] = Field(None, max_length=100, description="上游版权方")
+    operator_name: Optional[str] = Field(None, max_length=100, description="运营商")
     category_level1: Optional[str] = Field(None, max_length=50, description="一级分类")
     category_level2: Optional[str] = Field(None, max_length=50, description="二级分类")
-    category_level1_henan: Optional[str] = Field(None, max_length=50, description="一级分类-河南")
-    category_level2_henan: Optional[str] = Field(None, max_length=50, description="二级分类-河南")
     episode_count: Optional[int] = Field(None, ge=0, le=9999, description="集数")
     single_episode_duration: Optional[float] = Field(None, ge=0, description="单集时长(分钟)")
     total_duration: Optional[float] = Field(None, ge=0, description="总时长(分钟)")
@@ -41,7 +40,6 @@ class CopyrightBase(BaseModel):
     exclusive_status: Optional[str] = Field(None, max_length=20, description="独家状态")
     copyright_start_date: Optional[date] = Field(None, description="版权开始日期")
     copyright_end_date: Optional[date] = Field(None, description="版权结束日期")
-    category_level2_shandong: Optional[str] = Field(None, max_length=100, description="二级分类-山东")
     authorization_region: Optional[str] = Field(None, max_length=200, description="授权区域")
     authorization_platform: Optional[str] = Field(None, max_length=200, description="授权平台")
     cooperation_mode: Optional[str] = Field(None, max_length=50, description="合作方式")
@@ -50,31 +48,18 @@ class CopyrightBase(BaseModel):
         from_attributes = True
 
 
-class CustomerLicenseInput(BaseModel):
-    """客户维度授权时间输入模型"""
-    customer_code: str = Field(..., min_length=1, max_length=50, description="客户代码")
-    license_start_date: Optional[str] = Field(None, max_length=100, description="客户授权开始时间")
-    license_end_date: Optional[str] = Field(None, max_length=100, description="客户授权结束时间")
-
-
-class CustomerLicenseResponse(CustomerLicenseInput):
-    """客户维度授权时间响应模型"""
-    pass
-
-
 class CopyrightCreate(CopyrightBase):
     """创建版权数据请求模型"""
-    customer_licenses: Optional[List[CustomerLicenseInput]] = Field(None, description="客户授权明细")
+    pass
 
 
 class CopyrightUpdate(BaseModel):
     """更新版权数据请求模型（所有字段可选）"""
     media_name: Optional[str] = Field(None, min_length=1, max_length=200, description="介质名称")
     upstream_copyright: Optional[str] = Field(None, max_length=100, description="上游版权方")
+    operator_name: Optional[str] = Field(None, max_length=100, description="运营商")
     category_level1: Optional[str] = Field(None, max_length=50, description="一级分类")
     category_level2: Optional[str] = Field(None, max_length=50, description="二级分类")
-    category_level1_henan: Optional[str] = Field(None, max_length=50, description="一级分类-河南")
-    category_level2_henan: Optional[str] = Field(None, max_length=50, description="二级分类-河南")
     episode_count: Optional[int] = Field(None, ge=0, le=9999, description="集数")
     single_episode_duration: Optional[float] = Field(None, ge=0, description="单集时长(分钟)")
     total_duration: Optional[float] = Field(None, ge=0, description="总时长(分钟)")
@@ -97,11 +82,9 @@ class CopyrightUpdate(BaseModel):
     exclusive_status: Optional[str] = Field(None, max_length=20, description="独家状态")
     copyright_start_date: Optional[date] = Field(None, description="版权开始日期")
     copyright_end_date: Optional[date] = Field(None, description="版权结束日期")
-    category_level2_shandong: Optional[str] = Field(None, max_length=100, description="二级分类-山东")
     authorization_region: Optional[str] = Field(None, max_length=200, description="授权区域")
     authorization_platform: Optional[str] = Field(None, max_length=200, description="授权平台")
     cooperation_mode: Optional[str] = Field(None, max_length=50, description="合作方式")
-    customer_licenses: Optional[List[CustomerLicenseInput]] = Field(None, description="客户授权明细")
 
     class Config:
         from_attributes = True
@@ -111,7 +94,6 @@ class CopyrightResponse(CopyrightBase):
     """版权数据响应模型"""
     id: int
     drama_ids: Optional[Dict[str, int]] = None
-    customer_licenses: Optional[List[CustomerLicenseResponse]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

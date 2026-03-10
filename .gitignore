@@ -60,3 +60,6 @@ HeNan/web_app1/__pycache__/
 HeNan/web_app1/**/__pycache__/
 HeNan/web_app1/temp/
 HeNan/web_app1/*.pyc
+HeNan/web_app1/notify_config.json
+HeNan/web_app1/runtime/
+

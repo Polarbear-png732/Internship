@@ -22,10 +22,9 @@ COPYRIGHT_EXPORT_COLUMNS = {
     'id': '序号',
     'upstream_copyright': '上游版权方',
     'media_name': '介质名称',
+    'operator_name': '运营商',
     'category_level1': '一级分类',
     'category_level2': '二级分类',
-    'category_level1_henan': '一级分类-河南标准',
-    'category_level2_henan': '二级分类-河南标准',
     'episode_count': '集数',
     'single_episode_duration': '单集时长（分）',
     'total_duration': '总时长（分）',
@@ -51,7 +50,6 @@ COPYRIGHT_EXPORT_COLUMNS = {
     'exclusive_status': '独家\\非独',
     'copyright_start_date': '版权开始时间',
     'copyright_end_date': '版权结束时间',
-    'category_level2_shandong': '二级分类-山东',
 }
 
 
@@ -69,129 +67,13 @@ def convert_row(row):
     return {k: convert_decimal(v) for k, v in row.items()}
 
 
-def normalize_customer_licenses(licenses: Any) -> List[Dict[str, str]]:
-    """标准化客户授权明细输入，返回可写入数据库的结构。"""
-    if not isinstance(licenses, list):
-        return []
-
-    normalized: List[Dict[str, str]] = []
-    seen = set()
-    for item in licenses:
-        if not isinstance(item, dict):
-            continue
-        customer_code = str(item.get('customer_code') or '').strip()
-        if not customer_code or customer_code in seen:
-            continue
-        seen.add(customer_code)
-        start_date = str(item.get('license_start_date') or '').strip()
-        end_date = str(item.get('license_end_date') or '').strip()
-        normalized.append({
-            'customer_code': customer_code,
-            'license_start_date': start_date,
-            'license_end_date': end_date,
-        })
-    return normalized
-
-
-def upsert_customer_licenses(cursor, copyright_id: int, licenses: List[Dict[str, str]]):
-    """批量写入客户授权明细（存在则更新，不存在则新增）。"""
-    normalized = normalize_customer_licenses(licenses)
-    if not normalized:
-        return
-
-    rows = [
-        (
-            copyright_id,
-            row['customer_code'],
-            row['license_start_date'] or None,
-            row['license_end_date'] or None,
-        )
-        for row in normalized
-    ]
-    cursor.executemany(
-        """
-        INSERT INTO copyright_customer_license
-            (copyright_id, customer_code, license_start_date, license_end_date)
-        VALUES (%s, %s, %s, %s)
-        ON DUPLICATE KEY UPDATE
-            license_start_date = VALUES(license_start_date),
-            license_end_date = VALUES(license_end_date)
-        """,
-        rows
-    )
-
-
-def get_customer_licenses_by_copyright_id(cursor, copyright_id: int) -> List[Dict[str, Any]]:
-    """获取单条版权记录的客户授权明细。"""
-    cursor.execute(
-        """
-        SELECT customer_code, license_start_date, license_end_date
-        FROM copyright_customer_license
-        WHERE copyright_id = %s
-        ORDER BY customer_code ASC
-        """,
-        (copyright_id,)
-    )
-    return cursor.fetchall()
-
-
-def get_customer_licenses_map_by_copyright_ids(cursor, copyright_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
-    """批量获取版权记录的客户授权明细。"""
-    if not copyright_ids:
-        return {}
-
-    placeholders = ','.join(['%s'] * len(copyright_ids))
-    cursor.execute(
-        f"""
-        SELECT copyright_id, customer_code, license_start_date, license_end_date
-        FROM copyright_customer_license
-        WHERE copyright_id IN ({placeholders})
-        ORDER BY copyright_id ASC, customer_code ASC
-        """,
-        copyright_ids
-    )
-
-    mapping: Dict[int, List[Dict[str, Any]]] = {}
-    for row in cursor.fetchall():
-        mapping.setdefault(row['copyright_id'], []).append({
-            'customer_code': row.get('customer_code'),
-            'license_start_date': row.get('license_start_date'),
-            'license_end_date': row.get('license_end_date'),
-        })
-    return mapping
-
-
-def build_customer_license_map(licenses: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
-    """将授权明细列表转为按 customer_code 索引。"""
-    result: Dict[str, Dict[str, Any]] = {}
-    for row in licenses or []:
-        customer_code = str(row.get('customer_code') or '').strip()
-        if not customer_code:
-            continue
-        result[customer_code] = {
-            'license_start_date': row.get('license_start_date'),
-            'license_end_date': row.get('license_end_date'),
-            '_explicit': True,
-        }
-    return result
-
-
 class CopyrightDramaService:
     """版权-剧集生成服务，负责从版权数据生成各客户的剧头和子集"""
     
     @staticmethod
     def apply_customer_license_override(data: dict, customer_code: str) -> dict:
-        """按客户覆盖版权时间；若有客户记录则直接使用客户值（含空值）。"""
-        effective = dict(data or {})
-        # 不再引用主表默认版权时间，默认先置空
-        effective['copyright_start_date'] = ''
-        effective['copyright_end_date'] = ''
-        license_map = effective.get('_customer_license_map') or {}
-        override = license_map.get(customer_code) if isinstance(license_map, dict) else None
-        if override and override.get('_explicit'):
-            effective['copyright_start_date'] = override.get('license_start_date') or ''
-            effective['copyright_end_date'] = override.get('license_end_date') or ''
-        return effective
+        """客户授权功能已下线，直接返回原数据。"""
+        return dict(data or {})
 
     @staticmethod
     def build_drama_props_for_customer(data: dict, media_name: str, customer_code: str) -> dict:
@@ -243,7 +125,7 @@ class CopyrightDramaService:
                 image_type = col_config.get('image_type', 'vertical')
                 props[col_name] = get_image_url(abbr, image_type, customer_code)
             elif col_config.get('type') == 'product_category':
-                content_type = effective_data.get('category_level1_henan') or effective_data.get('category_level1') or ''
+                content_type = effective_data.get('category_level1') or ''
                 props[col_name] = get_product_category(content_type, customer_code)
             elif col_config.get('type') == 'is_multi_episode':
                 total = int(effective_data.get('episode_count') or 0)
@@ -390,7 +272,7 @@ class CopyrightDramaService:
         
         config = CUSTOMER_CONFIGS.get(customer_code, {})
         abbr = get_pinyin_abbr(media_name)
-        content_type = data.get('category_level1_henan') or data.get('category_level1') or ''
+        content_type = data.get('category_level1') or ''
         content_dir = get_content_dir(content_type, customer_code)
         
         # 批量查询扫描结果（使用剧名变体 + file_name 模糊匹配）
@@ -509,7 +391,7 @@ class CopyrightDramaService:
         """更新所有子集的动态属性（当介质名称变化时）"""
         config = CUSTOMER_CONFIGS.get(customer_code, {})
         new_abbr = get_pinyin_abbr(new_media_name)
-        content_type = data.get('category_level1_henan') or data.get('category_level1') or ''
+        content_type = data.get('category_level1') or ''
         content_dir = get_content_dir(content_type, customer_code)
         
         cursor.execute(

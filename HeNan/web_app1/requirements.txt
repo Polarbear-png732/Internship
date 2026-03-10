@@ -12,3 +12,4 @@ pypinyin
 pydantic
 DBUtils
 loguru
+apscheduler

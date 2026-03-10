@@ -1,0 +1,21 @@
+{
+  "enabled": false,
+  "smtp": {
+    "host": "smtp.example.com",
+    "port": 587,
+    "use_tls": true,
+    "username": "notice@example.com",
+    "password": "replace-with-app-password",
+    "from_name": "运营管理平台"
+  },
+  "recipients": [
+    "ops@example.com"
+  ],
+  "schedule": {
+    "day": 1,
+    "time": "09:00"
+  },
+  "rule": {
+    "months_before_expiry": 1
+  }
+}

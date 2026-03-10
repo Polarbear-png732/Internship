@@ -7,6 +7,7 @@ import os
 import re
 import threading
 from datetime import datetime
+from typing import List
 import pandas as pd
 from functools import lru_cache
 from pypinyin import pinyin, Style, load_phrases_dict
@@ -137,6 +138,43 @@ def parse_json(data, field='dynamic_properties'):
         val = data[field]
         return json.loads(val) if isinstance(val, str) else val
     return {}
+
+
+def _normalize_operator_text(value: str) -> str:
+    """运营商名称归一化：去空白并转小写。"""
+    return re.sub(r'\s+', '', str(value or '')).lower()
+
+
+def get_customer_codes_by_operator(operator_name: str, enabled_only: bool = True) -> List[str]:
+    """根据版权行中的运营商名称匹配目标客户代码（支持多值分隔）。"""
+    raw_text = str(operator_name or '').strip()
+    if not raw_text:
+        return []
+
+    parts = re.split(r'[,，;；、|/]+', raw_text)
+    tokens = [_normalize_operator_text(part) for part in parts if _normalize_operator_text(part)]
+    if not tokens:
+        return []
+
+    matched_codes = []
+    for customer_code, cfg in CUSTOMER_CONFIGS.items():
+        if enabled_only and not cfg.get('is_enabled', True):
+            continue
+
+        customer_name = _normalize_operator_text(cfg.get('name', ''))
+        short_code = _normalize_operator_text(cfg.get('code', ''))
+
+        for token in tokens:
+            if (
+                token == customer_name
+                or token in customer_name
+                or customer_name in token
+                or (short_code and (token == short_code or short_code in token))
+            ):
+                matched_codes.append(customer_code)
+                break
+
+    return matched_codes
 
 
 # ============================================================
@@ -723,7 +761,7 @@ def build_drama_props(data, media_name, customer_code, scan_results=None, pinyin
         elif c.get('type') == 'image':
             props[col] = get_image_url(abbr, c.get('image_type', 'vertical'), customer_code)
         elif c.get('type') == 'product_category':
-            cat1 = data.get('category_level1_henan') or data.get('category_level1') or ''
+            cat1 = data.get('category_level1') or ''
             props[col] = get_product_category(cat1, customer_code) if cat1 else ''
         elif c.get('type') == 'is_multi_episode':
             props[col] = 1 if int(data.get('episode_count') or 0) > 1 else 0
@@ -753,7 +791,7 @@ def build_episodes(drama_id, media_name, total_episodes, data, customer_code, sc
     """构建子集数据列表"""
     config = CUSTOMER_CONFIGS.get(customer_code, {})
     abbr = pinyin_cache.get(media_name) if pinyin_cache else get_pinyin_abbr(media_name)
-    cat1 = data.get('category_level1_henan') or data.get('category_level1') or ''
+    cat1 = data.get('category_level1') or ''
     content_dir = get_content_dir(cat1, customer_code) if cat1 else ''
     
     result = []
@@ -805,9 +843,8 @@ def build_episodes(drama_id, media_name, total_episodes, data, customer_code, sc
 # Excel列名映射
 COLUMN_MAPPING = {
     '序号': 'serial_number', '上游版权方': 'upstream_copyright', '介质名称': 'media_name',
+    '运营商': 'operator_name',
     '一级分类': 'category_level1', '二级分类': 'category_level2',
-    '一级分类-河南标准': 'category_level1_henan', '一级分类-河南': 'category_level1_henan',
-    '二级分类-河南标准': 'category_level2_henan', '二级分类-河南': 'category_level2_henan',
     '集数': 'episode_count', '单集时长': 'single_episode_duration', '总时长': 'total_duration',
     '出品年代': 'production_year', '首播日期': 'premiere_date', '制作地区': 'production_region', '出品地区': 'production_region',
     '语言': 'language', '语言-河南标准': 'language_henan', '语言-河南': 'language_henan',
@@ -822,7 +859,7 @@ COLUMN_MAPPING = {
     '独家/非独': 'exclusive_status', '独家\\非独': 'exclusive_status', '独家状态': 'exclusive_status',
     '版权开始时间': 'copyright_start_date', '版权开始日期': 'copyright_start_date',
     '版权结束时间': 'copyright_end_date', '版权结束日期': 'copyright_end_date',
-    '二级分类-山东': 'category_level2_shandong', '授权区域': 'authorization_region',
+    '授权区域': 'authorization_region',
     '授权区域（全国/单独沟通）': 'authorization_region', '授权平台': 'authorization_platform',
     '授权平台（IPTV、OTT、小屏、待沟通）': 'authorization_platform',
     '合作方式': 'cooperation_mode', '合作方式（采买/分成）': 'cooperation_mode',
@@ -839,12 +876,12 @@ NUMERIC_FIELDS = {
 
 # 版权表插入字段
 INSERT_FIELDS = [
-    'media_name', 'upstream_copyright', 'category_level1', 'category_level2', 
-    'category_level1_henan', 'category_level2_henan', 'episode_count', 
+    'media_name', 'upstream_copyright', 'operator_name', 'category_level1', 'category_level2',
+    'episode_count',
     'single_episode_duration', 'total_duration', 'production_year', 'premiere_date',
     'production_region', 'language', 'language_henan', 'country', 'director', 
     'screenwriter', 'cast_members', 'author', 'recommendation', 'synopsis', 
     'keywords', 'video_quality', 'license_number', 'rating', 'exclusive_status', 
-    'copyright_start_date', 'copyright_end_date', 'category_level2_shandong', 
+    'copyright_start_date', 'copyright_end_date',
     'authorization_region', 'authorization_platform', 'cooperation_mode', 'drama_ids'
 ]

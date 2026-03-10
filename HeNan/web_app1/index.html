@@ -11,7 +11,32 @@
     <title>运营管理平台 - 剧集信息管理</title>
     <!-- 引入 Tailwind CSS - 使用本地离线文件 -->
     <script src="/static/tailwindcss.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --app-bg: #f6f8fc;
+            --panel-bg: #ffffff;
+            --panel-border: #dbe4f0;
+            --sidebar-start: #0f172a;
+            --sidebar-end: #111827;
+            --brand: #2563eb;
+            --brand-soft: #dbeafe;
+            --text-strong: #0f172a;
+        }
+
+        body {
+            font-family: 'Fira Sans', sans-serif;
+            background: radial-gradient(1200px 600px at 85% -5%, #dbeafe 0%, rgba(219, 234, 254, 0) 55%),
+                        radial-gradient(900px 500px at -10% 120%, #e0e7ff 0%, rgba(224, 231, 255, 0) 50%),
+                        var(--app-bg);
+        }
+
+        code, .mono-title {
+            font-family: 'Fira Code', monospace;
+        }
+
         /* 自定义滚动条样式 */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -24,22 +49,443 @@
         /* 页面切换动画 */
         .page { display: none; }
         .page.active { display: block; }
+
+        .app-sidebar {
+            background: linear-gradient(180deg, var(--sidebar-start) 0%, var(--sidebar-end) 100%);
+            box-shadow: 12px 0 34px rgba(15, 23, 42, 0.22);
+            width: 16rem;
+            transition: width 220ms ease;
+        }
+
+        #app.sidebar-collapsed .app-sidebar {
+            width: 5.25rem;
+        }
+
+        #app.sidebar-collapsed .brand-text,
+        #app.sidebar-collapsed .nav-label,
+        #app.sidebar-collapsed .admin-text {
+            display: none;
+        }
+
+        #app.sidebar-collapsed .nav-item-btn {
+            justify-content: center;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+
+        #app.sidebar-collapsed .mono-title {
+            width: 100%;
+            justify-content: center;
+        }
+
+        #app.sidebar-collapsed .sidebar-user {
+            justify-content: center;
+        }
+
+        .sidebar-header {
+            min-height: 2rem;
+        }
+
+        .sidebar-header .mono-title {
+            padding-left: 1rem;
+        }
+
+        #app.sidebar-collapsed .sidebar-header .mono-title {
+            padding-left: 0;
+        }
+
+        .app-header {
+            backdrop-filter: blur(8px);
+            background: rgba(255, 255, 255, 0.92);
+        }
+
+        .panel-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+        }
+
+        .filter-trigger {
+            background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.22);
+        }
+
+        .filter-popover {
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
+            box-shadow: 0 22px 40px rgba(15, 23, 42, 0.18);
+        }
+
+        .filter-title {
+            font-family: 'Fira Code', monospace;
+            letter-spacing: 0.2px;
+        }
+
+        .filter-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 6px;
+        }
+
+        .filter-input {
+            background: #fff;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 10px 12px;
+            width: 100%;
+            color: #0f172a;
+            transition: border-color 200ms ease, box-shadow 200ms ease;
+        }
+
+        .filter-input:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+        }
+
+        .filter-hint {
+            font-size: 12px;
+            color: #64748b;
+            background: #f1f5f9;
+            border: 1px dashed #cbd5e1;
+            border-radius: 999px;
+            padding: 4px 10px;
+        }
+
+        .notify-page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .notify-page-header h2 {
+            font-family: 'Fira Sans', sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+        }
+
+        .notify-page-header p {
+            font-family: 'Fira Sans', sans-serif;
+            font-weight: 400;
+            color: #475569;
+        }
+
+        .notify-main-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.25rem;
+            align-items: stretch;
+        }
+
+        @media (min-width: 1200px) {
+            .notify-main-grid {
+                grid-template-columns: 1.2fr 0.8fr;
+            }
+        }
+
+        .notify-card {
+            background: #ffffff;
+            border-radius: 16px;
+            border: 1px solid #dbeafe;
+            box-shadow: 0 10px 24px -16px rgba(37, 99, 235, 0.35);
+            overflow: hidden;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .notify-card-config {
+            border-color: #bfdbfe;
+        }
+
+        .notify-card-status {
+            border-color: #bae6fd;
+        }
+
+        .notify-main-grid .notify-card .notify-card-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .notify-card-preview {
+            border-color: #cbd5e1;
+        }
+
+        .notify-card-head {
+            padding: 14px 18px;
+            border-bottom: 1px solid #e2e8f0;
+            background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 100%);
+        }
+
+        .notify-card-head-config {
+            background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 55%, #fff7ed 100%);
+        }
+
+        .notify-card-head-status {
+            background: linear-gradient(135deg, #ecfeff 0%, #f0f9ff 55%, #fff7ed 100%);
+        }
+
+        .notify-card-head-preview {
+            background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 55%, #ecfeff 100%);
+        }
+
+        .notify-card-body {
+            padding: 18px;
+        }
+
+        .notify-panel-title {
+            font-family: 'Fira Sans', sans-serif;
+            letter-spacing: 0.15px;
+            font-size: 16px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .notify-form-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+        }
+
+        @media (min-width: 768px) {
+            .notify-form-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .notify-form-full {
+            grid-column: 1 / -1;
+        }
+
+        .notify-status-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        @media (min-width: 640px) {
+            .notify-status-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .notify-status-item {
+            padding: 12px;
+            border: 1px solid #dbeafe;
+            border-radius: 12px;
+            background: #f8fbff;
+        }
+
+        .notify-status-item:nth-child(2n) {
+            border-color: #bae6fd;
+            background: #f0f9ff;
+        }
+
+        .notify-status-item:nth-child(3n) {
+            border-color: #fed7aa;
+            background: #fff7ed;
+        }
+
+        .notify-status-label {
+            font-size: 12px;
+            font-family: 'Fira Sans', sans-serif;
+            font-weight: 600;
+            color: #475569;
+            margin-bottom: 4px;
+        }
+
+        .notify-status-value {
+            font-size: 14px;
+            font-weight: 700;
+            font-family: 'Fira Code', monospace;
+            color: #0f172a;
+            word-break: break-word;
+        }
+
+        #notify-settings-page label {
+            font-family: 'Fira Sans', sans-serif;
+            letter-spacing: 0.1px;
+        }
+
+        #notify-settings-page th,
+        #notify-settings-page td,
+        #notify-settings-page button,
+        #notify-settings-page input,
+        #notify-settings-page textarea {
+            font-family: 'Fira Sans', sans-serif;
+        }
+
+        .notify-status-wide {
+            grid-column: 1 / -1;
+        }
+
+        .notify-input {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 9px 12px;
+            color: #0f172a;
+            background: #fff;
+            transition: border-color 200ms ease, box-shadow 200ms ease;
+        }
+
+        .notify-input:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+        }
+
+        .notify-action-primary {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        }
+
+        .notify-action-accent {
+            background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+        }
+
+        .notify-status-actions {
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px dashed #cbd5e1;
+        }
+
+        .notify-config-actions {
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 1px dashed #cbd5e1;
+        }
+
+        .notify-preview-refresh-btn {
+            border: 1px solid #93c5fd;
+            background: #eff6ff;
+            color: #0f4c81;
+        }
+
+        .notify-preview-refresh-btn:hover {
+            background: #dbeafe;
+        }
+
+        .notify-preview-table thead th,
+        .notify-preview-th {
+            color: #334155 !important;
+            background: #f8fafc;
+        }
+
+        .notify-preview-table tbody td {
+            color: #475569;
+        }
+
+        .notify-preview-table tbody td.notify-preview-cell-muted,
+        .notify-preview-cell-muted {
+            color: #475569 !important;
+        }
+
+        .notify-preview-table tbody td.notify-preview-cell-main,
+        .notify-preview-cell-main {
+            color: #0f4c81;
+            font-weight: 600;
+        }
+
+        .notify-preview-table tbody td.notify-preview-cell-end,
+        .notify-preview-cell-end {
+            color: #b91c1c;
+            font-weight: 600;
+            background: #fef2f2;
+            box-shadow: inset 0 1px 0 #fecaca, inset 0 -1px 0 #fecaca;
+        }
+
+        .notify-preview-table tbody tr:hover {
+            background: #f8fbff;
+        }
+
+        .notify-status-refresh-btn {
+            border-color: #bae6fd;
+            color: #0f4c81;
+            background: #f0f9ff;
+        }
+
+        .notify-status-refresh-btn:hover {
+            background: #e0f2fe;
+        }
+
+        .notify-run-btn {
+            background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+            color: #ffffff;
+        }
+
+        .notify-run-btn:hover {
+            background: linear-gradient(135deg, #d97706 0%, #c2410c 100%);
+        }
+
+        .nav-item-btn {
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+        }
+
+        .sidebar-logo-icon,
+        .sidebar-nav-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .sidebar-logo-icon {
+            cursor: pointer;
+        }
+
+        .sidebar-logo-icon:hover {
+            filter: brightness(1.08);
+        }
+
+        .sidebar-nav-icon {
+            width: 20px;
+            height: 20px;
+            flex: 0 0 20px;
+        }
+
+        .sidebar-logo-icon svg,
+        .sidebar-nav-icon svg {
+            display: block;
+        }
+
+        .nav-item-btn:focus-visible,
+        button:focus-visible,
+        input:focus-visible,
+        textarea:focus-visible {
+            outline: 2px solid var(--brand);
+            outline-offset: 2px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation: none !important;
+                transition: none !important;
+            }
+        }
     </style>
 </head>
-<body class="bg-slate-50 font-sans text-slate-900 overflow-hidden h-screen">
+<body class="text-slate-900 overflow-hidden h-screen">
     <div id="app" class="flex h-full">
         <!-- 左侧侧边栏 (深色) -->
-        <div class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col text-white shrink-0">
-            <div class="p-6">
-                <div class="flex items-center gap-3 font-bold text-xl tracking-tight">
-                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+        <div id="app-sidebar" class="app-sidebar border-r border-slate-800 flex flex-col text-white shrink-0">
+            <div class="p-4">
+                <div class="sidebar-header flex items-center">
+                    <div class="mono-title flex items-center gap-3 font-semibold text-xl tracking-tight">
+                    <div class="sidebar-logo-icon w-8 h-8 bg-blue-600 rounded-lg text-white" onclick="toggleSidebar()" title="收起/展开侧边栏" aria-label="收起/展开侧边栏" role="button" tabindex="0" onkeydown="if(event.key==='Enter' || event.key===' ') { event.preventDefault(); toggleSidebar(); }">
                         <!-- Logo Icon (SVG) -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <rect width="20" height="15" x="2" y="7" rx="2" ry="2"/>
                             <polyline points="17 2 12 7 7 2"/>
                         </svg>
                     </div>
-                    运营管理平台
+                        <span class="brand-text">运营管理平台</span>
+                    </div>
                 </div>
             </div>
 
@@ -47,54 +493,76 @@
                 <button onclick="showPage('customer-list'); return false;"
                     id="nav-customer-list"
                     class="nav-item-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 bg-blue-600 text-white shadow-md">
-                    <!-- Film Icon -->
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect width="18" height="18" x="3" y="3" rx="2"/>
-                        <path d="M7 3v18"/>
-                        <path d="M3 7.5h4"/>
-                        <path d="M3 12h18"/>
-                        <path d="M3 16.5h4"/>
-                        <path d="M17 3v18"/>
-                        <path d="M17 7.5h4"/>
-                        <path d="M17 16.5h4"/>
-                    </svg>
-                    <span class="font-medium">注入表管理</span>
+                    <span class="sidebar-nav-icon">
+                        <!-- Film Icon -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect width="18" height="18" x="3" y="3" rx="2"/>
+                            <path d="M7 3v18"/>
+                            <path d="M3 7.5h4"/>
+                            <path d="M3 12h18"/>
+                            <path d="M3 16.5h4"/>
+                            <path d="M17 3v18"/>
+                            <path d="M17 7.5h4"/>
+                            <path d="M17 16.5h4"/>
+                        </svg>
+                    </span>
+                    <span class="nav-label font-medium">注入表管理</span>
                 </button>
                 <button onclick="showPage('copyright-management'); return false;"
                     id="nav-copyright-management"
                     class="nav-item-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 text-slate-400 hover:bg-slate-800 hover:text-white">
-                    <!-- Shield Icon -->
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
-                    </svg>
-                    <span class="font-medium">版权数据</span>
+                    <span class="sidebar-nav-icon">
+                        <!-- Shield Icon -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
+                        </svg>
+                    </span>
+                    <span class="nav-label font-medium">版权数据</span>
+                </button>
+                <button onclick="showPage('notify-settings'); return false;"
+                    id="nav-notify-settings"
+                    class="nav-item-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 text-slate-400 hover:bg-slate-800 hover:text-white">
+                    <span class="sidebar-nav-icon">
+                        <!-- Mail Icon -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect width="20" height="16" x="2" y="4" rx="2"/>
+                            <path d="m22 7-8.97 5.7a2 2 0 0 1-2.06 0L2 7"/>
+                        </svg>
+                    </span>
+                    <span class="nav-label font-medium">邮件提醒</span>
                 </button>
                 <button onclick="showPage('placeholder'); return false;"
                     id="nav-placeholder"
                     class="nav-item-btn w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors duration-200 text-slate-400 hover:bg-slate-800 hover:text-white">
-                    <!-- Settings Icon -->
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.39a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-                        <circle cx="12" cy="12" r="3"/>
-                    </svg>
-                    <span class="font-medium">等待增加的模块</span>
+                    <span class="sidebar-nav-icon">
+                        <!-- Settings Icon -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.39a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    </span>
+                    <span class="nav-label font-medium">等待增加的模块</span>
                 </button>
             </nav>
 
             <div class="p-4 border-t border-slate-800">
-                <div class="flex items-center gap-3 text-slate-400 px-4 py-2">
+                <div class="sidebar-user flex items-center gap-3 text-slate-400 px-4 py-2">
                     <div class="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-white">
                         GM
                     </div>
-                    <span>管理员</span>
+                    <span class="admin-text">管理员</span>
                 </div>
             </div>
         </div>
 
         <!-- 右侧主内容区 (浅色) -->
-        <div class="flex-1 flex flex-col overflow-hidden relative bg-slate-50">
+        <div class="flex-1 flex flex-col overflow-hidden relative bg-transparent">
+            <div class="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+                <div class="absolute -top-20 right-10 h-64 w-64 rounded-full bg-cyan-200/30 blur-3xl"></div>
+                <div class="absolute bottom-0 left-20 h-52 w-52 rounded-full bg-indigo-200/30 blur-3xl"></div>
+            </div>
             <!-- 顶部 Header -->
-            <header class="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-8 shadow-sm z-10 shrink-0">
+            <header class="app-header h-16 border-b border-slate-200 flex items-center justify-between px-4 md:px-6 lg:px-8 shadow-sm z-10 shrink-0">
                 <div class="text-sm text-slate-500 font-medium flex items-center gap-2">
                     <span id="header-title">剧集管理中心</span>
                 </div>
@@ -116,7 +584,7 @@
                         </div>
                     </div>
 
-                    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    <div class="panel-card rounded-xl overflow-hidden">
                         <table class="w-full text-left">
                             <thead>
                                 <tr class="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-slate-200">
@@ -220,7 +688,7 @@
 
                     <!-- 批量选择和导出区域 -->
                     <div id="batch-selection-area" class="hidden">
-                        <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                        <div class="panel-card rounded-xl p-4">
                             <div class="flex items-center justify-between mb-3">
                                 <div class="flex items-center gap-3">
                                     <h3 class="text-lg font-semibold text-slate-900">批量选择剧集</h3>
@@ -268,7 +736,7 @@
                     </div>
 
                     <!-- 搜索框和按钮 -->
-                    <div class="flex items-center gap-3">
+                    <div class="relative flex items-center gap-3">
                         <div class="relative flex-1 max-w-md">
                             <div class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -288,6 +756,46 @@
                             </svg>
                             搜索
                         </button>
+                        <button onclick="toggleCopyrightFilterPanel()"
+                            class="filter-trigger text-white px-4 py-2 rounded-lg transition-colors font-medium flex items-center gap-2 whitespace-nowrap">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                            </svg>
+                            筛选
+                        </button>
+
+                        <div id="copyright-filter-panel" class="hidden absolute top-full left-0 mt-2 z-20 w-full max-w-3xl filter-popover rounded-xl p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="filter-title text-sm text-slate-800">高级筛选</div>
+                                <div class="filter-hint">支持组合筛选（AND）</div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div>
+                                    <div class="filter-label">上游版权方</div>
+                                    <input type="text" id="copyright-filter-upstream" placeholder="例如：牛油果"
+                                        onkeypress="if(event.key==='Enter') applyCopyrightFilters()"
+                                        class="filter-input">
+                                </div>
+                                <div>
+                                    <div class="filter-label">一级分类</div>
+                                    <input type="text" id="copyright-filter-category1" placeholder="例如：电竞 / 教育"
+                                        onkeypress="if(event.key==='Enter') applyCopyrightFilters()"
+                                        class="filter-input">
+                                </div>
+                                <div>
+                                    <div class="filter-label">运营商</div>
+                                    <input type="text" id="copyright-filter-operator" placeholder="例如：河南移动"
+                                        onkeypress="if(event.key==='Enter') applyCopyrightFilters()"
+                                        class="filter-input">
+                                </div>
+                            </div>
+                            <div class="mt-3 flex justify-end gap-2">
+                                <button onclick="resetCopyrightFilters()"
+                                    class="px-3 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 transition-colors">重置</button>
+                                <button onclick="applyCopyrightFilters()"
+                                    class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">应用筛选</button>
+                            </div>
+                        </div>
                         <div class="flex-1"></div>
                         <button onclick="openImportModal()" 
                             class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors font-medium shadow-md shadow-purple-600/20 flex items-center gap-2">
@@ -346,7 +854,7 @@
                     </div>
 
                     <!-- 版权方数据列表表格 -->
-                    <div class="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                    <div class="panel-card rounded-xl overflow-hidden">
                         <div class="overflow-x-auto">
                             <table class="w-full text-left min-w-[2200px]">
                                 <thead>
@@ -354,10 +862,9 @@
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">序号</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">上游版权方</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">介质名称</th>
+                                        <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">运营商</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">一级分类</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">二级分类</th>
-                                        <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">一级分类-河南</th>
-                                        <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">二级分类-河南</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">集数</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">单集时长</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">总时长</th>
@@ -383,18 +890,144 @@
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">独家/非独</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">版权开始</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">版权结束</th>
-                                        <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap">二级分类-山东</th>
                                         <th class="px-4 py-3 text-slate-700 font-semibold text-sm whitespace-nowrap sticky right-0 bg-gradient-to-r from-blue-50 to-indigo-50">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody id="copyright-table-body" class="divide-y divide-slate-100">
                                     <tr>
-                                        <td colspan="34" class="px-6 py-8 text-center text-slate-500">加载中...</td>
+                                        <td colspan="32" class="px-6 py-8 text-center text-slate-500">加载中...</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
                         <div id="copyright-pagination" class="p-4 border-t border-slate-200 flex justify-center items-center gap-2">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 邮件提醒配置页面 -->
+                <div id="notify-settings-page" class="page space-y-6">
+                    <div class="notify-page-header">
+                        <div>
+                            <h2 class="text-2xl font-bold text-slate-900">邮件提醒配置</h2>
+                            <p class="text-slate-500 text-sm mt-1">管理发送配置、查看到期预览和运行状态</p>
+                        </div>
+                    </div>
+
+                    <div class="notify-main-grid">
+                        <div class="notify-card notify-card-config">
+                            <div class="notify-card-head notify-card-head-config">
+                                <h3 class="notify-panel-title">配置</h3>
+                            </div>
+                            <div class="notify-card-body flex flex-col gap-4">
+                                <div class="notify-form-grid">
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">SMTP 服务器</label>
+                                        <input id="notify-smtp-host" type="text" class="notify-input" placeholder="如：smtp.qq.com">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">端口</label>
+                                        <input id="notify-smtp-port" type="number" class="notify-input" placeholder="587">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">SMTP 账号</label>
+                                        <input id="notify-smtp-username" type="text" class="notify-input" placeholder="notice@example.com">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">SMTP 授权码</label>
+                                        <input id="notify-smtp-password" type="password" class="notify-input" placeholder="请输入授权码">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">发件人名称</label>
+                                        <input id="notify-from-name" type="text" class="notify-input" placeholder="运营管理平台">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">执行时间</label>
+                                        <input id="notify-schedule-time" type="time" class="notify-input" value="09:00">
+                                    </div>
+                                    <div class="notify-form-full">
+                                        <label class="block text-sm font-medium text-slate-700 mb-1">收件人（每行一个或逗号分隔）</label>
+                                        <textarea id="notify-recipients" rows="4" class="notify-input" placeholder="ops@example.com"></textarea>
+                                    </div>
+                                </div>
+
+                                <label class="flex items-center gap-2 text-sm text-slate-700 font-medium">
+                                    <input type="checkbox" id="notify-smtp-tls" class="w-4 h-4 text-blue-600 focus:ring-blue-500" checked>
+                                    使用 TLS 加密
+                                </label>
+
+                                <div class="flex flex-wrap gap-2 pt-1 notify-config-actions">
+                                    <button onclick="saveNotifyConfig()" class="notify-action-primary px-4 py-2 text-white rounded-lg transition-colors font-medium">保存配置</button>
+                                    <button onclick="sendNotifyTestEmail()" class="notify-action-accent px-4 py-2 text-white rounded-lg transition-colors font-medium">发送测试邮件</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="notify-card notify-card-status">
+                            <div class="notify-card-head notify-card-head-status">
+                                    <h3 class="notify-panel-title">运行状态</h3>
+                            </div>
+
+                            <div class="notify-card-body flex flex-col gap-4">
+                                <div class="notify-status-grid">
+                                    <div class="notify-status-item">
+                                        <div class="notify-status-label">调度器状态</div>
+                                        <div id="notify-status-scheduler" class="notify-status-value">-</div>
+                                    </div>
+                                    <div class="notify-status-item">
+                                        <div class="notify-status-label">下次执行</div>
+                                        <div id="notify-status-next-run" class="notify-status-value">-</div>
+                                    </div>
+                                    <div class="notify-status-item">
+                                        <div class="notify-status-label">最近结果</div>
+                                        <div id="notify-status-last-result" class="notify-status-value">-</div>
+                                    </div>
+                                    <div class="notify-status-item">
+                                        <div class="notify-status-label">最近发送数量</div>
+                                        <div id="notify-status-last-count" class="notify-status-value">-</div>
+                                    </div>
+                                    <div class="notify-status-item notify-status-wide">
+                                        <div class="notify-status-label">最近发送时间</div>
+                                        <div id="notify-status-last-sent" class="notify-status-value">-</div>
+                                    </div>
+                                    <div class="notify-status-item notify-status-wide">
+                                        <div class="notify-status-label">最近错误</div>
+                                        <div id="notify-status-last-error" class="notify-status-value text-red-600">-</div>
+                                    </div>
+                                </div>
+
+                                <div class="flex flex-wrap gap-2 notify-status-actions">
+                                    <button onclick="loadNotifyStatus()"
+                                        class="px-3 py-2 border rounded-lg transition-colors notify-status-refresh-btn">刷新状态</button>
+                                    <button onclick="runNotifyNow()" class="px-4 py-2 rounded-lg transition-colors font-medium notify-run-btn">立即执行提醒</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="notify-card notify-card-preview">
+                        <div class="notify-card-head notify-card-head-preview flex items-center justify-between gap-3">
+                            <h3 class="notify-panel-title">预览</h3>
+                            <button onclick="loadNotifyPreview()"
+                                class="px-3 py-2 rounded-lg transition-colors notify-preview-refresh-btn">刷新预览</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left min-w-[900px] notify-preview-table">
+                                <thead>
+                                    <tr class="bg-slate-50 border-b border-slate-200">
+                                        <th class="px-4 py-3 text-sm font-semibold notify-preview-th">介质名称</th>
+                                        <th class="px-4 py-3 text-sm font-semibold notify-preview-th">运营商</th>
+                                        <th class="px-4 py-3 text-sm font-semibold notify-preview-th">上游版权方</th>
+                                        <th class="px-4 py-3 text-sm font-semibold notify-preview-th">版权开始时间</th>
+                                        <th class="px-4 py-3 text-sm font-semibold notify-preview-th">版权结束时间</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="notify-preview-body" class="divide-y divide-slate-100">
+                                    <tr>
+                                        <td colspan="5" class="px-4 py-6 text-center text-slate-500">加载中...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -548,8 +1181,9 @@
         </div>
     </div>
 
-    <script src="/static/js/common.js?v=20260306a"></script>
-    <script src="/static/js/copyright.js?v=20260306a"></script>
+    <script src="/static/js/common.js?v=20260310c"></script>
+    <script src="/static/js/copyright.js?v=20260310b"></script>
+    <script src="/static/js/notify.js?v=20260310c"></script>
     <script src="/static/js/backfill.js?v=20260306b"></script>
     <script src="/static/js/scan.js?v=20260306a"></script>
 
@@ -589,28 +1223,22 @@
                             <input type="text" id="copyright-media-name" required
                                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
-                        <!-- 3. 一级分类 -->
+                        <!-- 3. 运营商 -->
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">运营商</label>
+                            <input type="text" id="copyright-operator-name" placeholder="如：河南移动/山东移动"
+                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <!-- 4. 一级分类 -->
                         <div>
                             <label class="block text-sm font-medium text-slate-700 mb-1">一级分类</label>
                             <input type="text" id="copyright-category1"
                                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
-                        <!-- 4. 二级分类 -->
+                        <!-- 5. 二级分类 -->
                         <div>
                             <label class="block text-sm font-medium text-slate-700 mb-1">二级分类</label>
                             <input type="text" id="copyright-category2"
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        </div>
-                        <!-- 5. 一级分类-河南标准 -->
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">一级分类-河南标准</label>
-                            <input type="text" id="copyright-category1-henan"
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        </div>
-                        <!-- 6. 二级分类-河南标准 -->
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">二级分类-河南标准</label>
-                            <input type="text" id="copyright-category2-henan"
                                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <!-- 7. 集数 -->
@@ -769,39 +1397,6 @@
                             <input type="text" id="copyright-end-date" placeholder="如：2025-12-31"
                                 class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
-                        <div class="md:col-span-2 lg:col-span-3">
-                            <div class="border border-slate-200 rounded-lg bg-slate-50">
-                                <button type="button" id="customer-license-toggle" onclick="toggleCustomerLicensePanel()"
-                                    class="w-full px-4 py-3 flex items-center justify-between text-left text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-lg transition-colors">
-                                    <span>客户授权设置（留空则保持为空）</span>
-                                    <span id="customer-license-toggle-icon">▾</span>
-                                </button>
-                                <div id="customer-license-panel" class="px-4 pb-4">
-                                    <div class="overflow-x-auto border border-slate-200 rounded-lg bg-white">
-                                        <table class="w-full text-left text-sm">
-                                            <thead class="bg-slate-100 border-b border-slate-200">
-                                                <tr>
-                                                    <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">客户</th>
-                                                    <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">开始时间</th>
-                                                    <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">结束时间</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="customer-license-table-body">
-                                                <tr>
-                                                    <td colspan="3" class="px-3 py-3 text-slate-500">加载客户配置中...</td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- 32. 二级分类-山东 -->
-                        <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">二级分类-山东</label>
-                            <input type="text" id="copyright-category2-shandong"
-                                class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        </div>
                     </div>
                     
                     <!-- 24. 简介（单独一行，占满宽度） -->
@@ -823,48 +1418,6 @@
                         <polyline points="20 6 9 17 4 12"/>
                     </svg>
                     保存
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 客户授权详情弹窗 -->
-    <div id="customer-license-preview-modal" onclick="if(event.target === this) closeCustomerLicensePreviewModal()" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
-        <div onclick="event.stopPropagation()" class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-            <div class="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-cyan-50 to-blue-50 flex items-center justify-between">
-                <h3 id="customer-license-preview-title" class="text-xl font-bold text-slate-900">客户授权明细</h3>
-                <button onclick="closeCustomerLicensePreviewModal()" class="text-slate-400 hover:text-slate-600 transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <line x1="18" x2="6" y1="6" y2="18"/>
-                        <line x1="6" x2="18" y1="6" y2="18"/>
-                    </svg>
-                </button>
-            </div>
-            <div class="px-6 py-3 bg-slate-50 border-b border-slate-200 text-sm text-slate-700">
-                客户授权明细
-            </div>
-            <div class="flex-1 overflow-y-auto p-6">
-                <div class="overflow-x-auto border border-slate-200 rounded-lg">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-slate-100 border-b border-slate-200">
-                            <tr>
-                                <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">客户</th>
-                                <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">客户开始时间</th>
-                                <th class="px-3 py-2 font-semibold text-slate-700 whitespace-nowrap">客户结束时间</th>
-                                
-                            </tr>
-                        </thead>
-                        <tbody id="customer-license-preview-body">
-                            <tr>
-                                <td colspan="3" class="px-3 py-3 text-slate-500">暂无数据</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="px-6 py-4 border-t border-slate-200 bg-slate-50 flex justify-end">
-                <button onclick="closeCustomerLicensePreviewModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 transition-colors font-medium">
-                    关闭
                 </button>
             </div>
         </div>

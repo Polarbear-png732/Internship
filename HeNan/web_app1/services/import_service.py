@@ -16,12 +16,12 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from enum import Enum
 
-from config import CUSTOMER_CONFIGS, get_enabled_customers
+from config import CUSTOMER_CONFIGS
 from utils import (
     get_pinyin_abbr, get_image_url, get_product_category, format_datetime,
     clean_numeric, clean_string, build_drama_props, build_episodes,
     extract_episode_number, find_scan_match, build_media_name_variants,
-    COLUMN_MAPPING, NUMERIC_FIELDS, INSERT_FIELDS
+    COLUMN_MAPPING, NUMERIC_FIELDS, INSERT_FIELDS, get_customer_codes_by_operator
 )
 
 
@@ -203,19 +203,28 @@ class ExcelImportService:
     def _normalize_media_name(self, value: Any) -> str:
         return re.sub(r'\s+', '', str(value or '')).strip().lower()
 
-    def _find_copyright_row_by_media_name(self, cursor, media_name: str) -> Optional[Dict[str, Any]]:
-        """按介质名称查找版权记录：先精确匹配，再做空白归一化匹配。"""
+    def _normalize_operator_name(self, value: Any) -> str:
+        return re.sub(r'\s+', '', str(value or '')).strip().lower()
+
+    def _build_media_operator_key(self, media_name: Any, operator_name: Any) -> str:
+        return f"{self._normalize_media_name(media_name)}||{self._normalize_operator_name(operator_name)}"
+
+    def _resolve_target_customers_from_row(self, row_data: Dict[str, Any]) -> List[str]:
+        return get_customer_codes_by_operator(row_data.get('operator_name'), enabled_only=True)
+
+    def _find_copyright_rows_by_media_name(self, cursor, media_name: str) -> List[Dict[str, Any]]:
+        """按介质名称查找版权记录列表：先精确匹配，再做空白归一化匹配。"""
         target = str(media_name or '').strip()
         if not target:
-            return None
+            return []
 
         cursor.execute(
-            "SELECT * FROM copyright_content WHERE media_name = %s ORDER BY id DESC LIMIT 1",
+            "SELECT * FROM copyright_content WHERE media_name = %s ORDER BY id ASC",
             (target,)
         )
-        row = cursor.fetchone()
-        if row:
-            return row
+        exact_rows = cursor.fetchall()
+        if exact_rows:
+            return exact_rows
 
         target_variants = build_media_name_variants(target) or [target]
         normalized_targets = {
@@ -224,9 +233,10 @@ class ExcelImportService:
             if self._normalize_media_name(v)
         }
         if not normalized_targets:
-            return None
+            return []
 
-        cursor.execute("SELECT * FROM copyright_content ORDER BY id DESC")
+        cursor.execute("SELECT * FROM copyright_content ORDER BY id ASC")
+        matched_rows = []
         for candidate in cursor.fetchall():
             candidate_name = candidate.get('media_name')
             candidate_variants = build_media_name_variants(candidate_name) or [candidate_name]
@@ -236,107 +246,119 @@ class ExcelImportService:
                 if self._normalize_media_name(v)
             }
             if normalized_targets & normalized_candidates:
-                return candidate
+                matched_rows.append(candidate)
 
-        return None
+        return matched_rows
 
     def _execute_recalculate_all_for_media(self, task: BackfillTask, conn, cursor, media_name: str) -> Dict[str, Any]:
         """按“重新导入单条版权”的语义重算该剧：重算剧头并重建全部子集。"""
-        copyright_row = self._find_copyright_row_by_media_name(cursor, media_name)
-        if not copyright_row:
+        copyright_rows = self._find_copyright_rows_by_media_name(cursor, media_name)
+        if not copyright_rows:
             task.missed_episodes += 1
             task.processed_media = task.total_media
             return {'success': False, 'error': f'未找到版权数据：{media_name}'}
-
-        canonical_media_name = str(copyright_row.get('media_name') or media_name).strip() or media_name
-
-        episode_count = self._safe_int(copyright_row.get('episode_count'), 0)
-        enabled_customers = get_enabled_customers()
-        if not enabled_customers:
-            task.processed_media = task.total_media
-            return {'success': False, 'error': '未配置启用客户'}
-
-        scan_results = self._preload_scans(cursor, [canonical_media_name])
-        pinyin_cache = {canonical_media_name: get_pinyin_abbr(canonical_media_name)}
-
-        drama_ids_raw = copyright_row.get('drama_ids')
-        drama_ids_map = {}
-        if isinstance(drama_ids_raw, dict):
-            drama_ids_map = {k: v for k, v in drama_ids_raw.items() if v}
-        elif isinstance(drama_ids_raw, str):
-            try:
-                parsed = json.loads(drama_ids_raw)
-                if isinstance(parsed, dict):
-                    drama_ids_map = {k: v for k, v in parsed.items() if v}
-            except Exception:
-                drama_ids_map = {}
 
         total_matched = 0
         total_missed = 0
         total_updated_episodes = 0
 
-        for customer_code in enabled_customers:
-            drama_id = drama_ids_map.get(customer_code)
-            drama_exists = False
-            if drama_id:
-                cursor.execute("SELECT drama_id FROM drama_main WHERE drama_id = %s", (drama_id,))
-                drama_exists = cursor.fetchone() is not None
+        canonical_names = [
+            str(row.get('media_name') or media_name).strip() or media_name
+            for row in copyright_rows
+        ]
+        scan_results = self._preload_scans(cursor, list(set(canonical_names)))
+        pinyin_cache = {name: get_pinyin_abbr(name) for name in set(canonical_names)}
 
-            drama_props = build_drama_props(
-                copyright_row,
-                canonical_media_name,
-                customer_code,
-                scan_results,
-                pinyin_cache
-            )
-            drama_props = self._sanitize_for_json(drama_props)
+        for copyright_row in copyright_rows:
+            canonical_media_name = str(copyright_row.get('media_name') or media_name).strip() or media_name
+            episode_count = self._safe_int(copyright_row.get('episode_count'), 0)
+            target_customers = self._resolve_target_customers_from_row(copyright_row)
+            if not target_customers:
+                continue
 
-            if drama_exists:
-                cursor.execute(
-                    "UPDATE drama_main SET drama_name = %s, dynamic_properties = %s WHERE drama_id = %s",
-                    (canonical_media_name, json.dumps(drama_props, ensure_ascii=False), drama_id)
-                )
-            else:
-                cursor.execute(
-                    "INSERT INTO drama_main (customer_code, drama_name, dynamic_properties) VALUES (%s, %s, %s)",
-                    (customer_code, canonical_media_name, json.dumps(drama_props, ensure_ascii=False))
-                )
-                drama_id = cursor.lastrowid
-                drama_ids_map[customer_code] = drama_id
+            drama_ids_raw = copyright_row.get('drama_ids')
+            drama_ids_map = {}
+            if isinstance(drama_ids_raw, dict):
+                drama_ids_map = {k: v for k, v in drama_ids_raw.items() if v}
+            elif isinstance(drama_ids_raw, str):
+                try:
+                    parsed = json.loads(drama_ids_raw)
+                    if isinstance(parsed, dict):
+                        drama_ids_map = {k: v for k, v in parsed.items() if v}
+                except Exception:
+                    drama_ids_map = {}
 
-            # 校正模式采用“全删全建”，保证与单条重新导入的结果一致
-            cursor.execute("DELETE FROM drama_episode WHERE drama_id = %s", (drama_id,))
+            target_set = set(target_customers)
 
-            if episode_count > 0:
-                episode_rows = build_episodes(
-                    drama_id,
-                    canonical_media_name,
-                    episode_count,
+            for customer_code in target_customers:
+                drama_id = drama_ids_map.get(customer_code)
+                drama_exists = False
+                if drama_id:
+                    cursor.execute("SELECT drama_id FROM drama_main WHERE drama_id = %s", (drama_id,))
+                    drama_exists = cursor.fetchone() is not None
+
+                drama_props = build_drama_props(
                     copyright_row,
+                    canonical_media_name,
                     customer_code,
                     scan_results,
                     pinyin_cache
                 )
-                if episode_rows:
-                    cursor.executemany(
-                        "INSERT INTO drama_episode (drama_id, episode_name, dynamic_properties) VALUES (%s, %s, %s)",
-                        episode_rows
+                drama_props = self._sanitize_for_json(drama_props)
+
+                if drama_exists:
+                    cursor.execute(
+                        "UPDATE drama_main SET drama_name = %s, dynamic_properties = %s WHERE drama_id = %s",
+                        (canonical_media_name, json.dumps(drama_props, ensure_ascii=False), drama_id)
                     )
+                else:
+                    cursor.execute(
+                        "INSERT INTO drama_main (customer_code, drama_name, dynamic_properties) VALUES (%s, %s, %s)",
+                        (customer_code, canonical_media_name, json.dumps(drama_props, ensure_ascii=False))
+                    )
+                    drama_id = cursor.lastrowid
+                    drama_ids_map[customer_code] = drama_id
 
-                total_updated_episodes += len(episode_rows)
+                cursor.execute("DELETE FROM drama_episode WHERE drama_id = %s", (drama_id,))
 
-                abbr = pinyin_cache.get(canonical_media_name)
-                for ep in range(1, episode_count + 1):
-                    match = find_scan_match(scan_results, canonical_media_name, abbr, ep)
-                    if match:
-                        total_matched += 1
-                    else:
-                        total_missed += 1
+                if episode_count > 0:
+                    episode_rows = build_episodes(
+                        drama_id,
+                        canonical_media_name,
+                        episode_count,
+                        copyright_row,
+                        customer_code,
+                        scan_results,
+                        pinyin_cache
+                    )
+                    if episode_rows:
+                        cursor.executemany(
+                            "INSERT INTO drama_episode (drama_id, episode_name, dynamic_properties) VALUES (%s, %s, %s)",
+                            episode_rows
+                        )
 
-        cursor.execute(
-            "UPDATE copyright_content SET drama_ids = %s WHERE id = %s",
-            (json.dumps(drama_ids_map, ensure_ascii=False), copyright_row['id'])
-        )
+                    total_updated_episodes += len(episode_rows)
+
+                    abbr = pinyin_cache.get(canonical_media_name)
+                    for ep in range(1, episode_count + 1):
+                        match = find_scan_match(scan_results, canonical_media_name, abbr, ep)
+                        if match:
+                            total_matched += 1
+                        else:
+                            total_missed += 1
+
+            # 清理不再属于目标客户的旧剧头
+            for customer_code, drama_id in list(drama_ids_map.items()):
+                if customer_code not in target_set and drama_id:
+                    cursor.execute("DELETE FROM drama_episode WHERE drama_id = %s", (drama_id,))
+                    cursor.execute("DELETE FROM drama_main WHERE drama_id = %s", (drama_id,))
+                    drama_ids_map.pop(customer_code, None)
+
+            cursor.execute(
+                "UPDATE copyright_content SET drama_ids = %s WHERE id = %s",
+                (json.dumps(drama_ids_map, ensure_ascii=False), copyright_row['id'])
+            )
+
         conn.commit()
 
         task.matched_episodes += total_matched
@@ -552,29 +574,47 @@ class ExcelImportService:
             return {"success": False, "error": "请先解析Excel文件"}
         
         df = task.parsed_data.copy()
-        invalid_details, valid_indices, seen_names, final_indices = [], [], set(), []
+        invalid_details, valid_indices, seen_pairs, final_indices = [], [], set(), []
         
         for idx, row in df.iterrows():
             media_name = str(row.get('media_name', '')).strip()
+            operator_name = str(row.get('operator_name', '')).strip()
             if not media_name:
                 invalid_details.append({"row": idx + 2, "reason": "介质名称为空"})
+                continue
+
+            if not operator_name:
+                invalid_details.append({"row": idx + 2, "reason": "运营商为空"})
+                continue
+
+            if not self._resolve_target_customers_from_row(row.to_dict()):
+                invalid_details.append({"row": idx + 2, "reason": f"运营商无法匹配启用客户: {operator_name}"})
             else:
                 valid_indices.append(idx)
         
         duplicate_count = 0
         for idx in valid_indices:
             media_name = str(df.loc[idx, 'media_name']).strip()
-            if media_name in seen_names:
+            operator_name = str(df.loc[idx, 'operator_name']).strip()
+            pair_key = self._build_media_operator_key(media_name, operator_name)
+            if pair_key in seen_pairs:
                 duplicate_count += 1
             else:
-                seen_names.add(media_name)
+                seen_pairs.add(pair_key)
                 final_indices.append(idx)
         
         valid_df = df.loc[final_indices].copy()
         existing_in_db = 0
         if cursor and len(valid_df) > 0:
-            existing_names = self._get_existing_names(cursor, valid_df['media_name'].tolist())
-            existing_in_db = len(existing_names)
+            pair_rows = [
+                {
+                    'media_name': str(row.get('media_name', '')).strip(),
+                    'operator_name': str(row.get('operator_name', '')).strip(),
+                }
+                for _, row in valid_df.iterrows()
+            ]
+            existing_pairs = self._get_existing_media_operator_pairs(cursor, pair_rows)
+            existing_in_db = len(existing_pairs)
         
         task.valid_data = valid_df
         task.invalid_details = invalid_details
@@ -589,12 +629,25 @@ class ExcelImportService:
             "invalid_details": invalid_details[:50]
         }
     
-    def _get_existing_names(self, cursor, names: List[str]) -> set:
+    def _get_existing_media_operator_pairs(self, cursor, rows: List[Dict[str, str]]) -> set:
         existing = set()
-        for i in range(0, len(names), 1000):
-            batch = names[i:i+1000]
-            cursor.execute(f"SELECT media_name FROM copyright_content WHERE media_name IN ({','.join(['%s']*len(batch))})", batch)
-            existing.update(row['media_name'] for row in cursor.fetchall())
+        if not rows:
+            return existing
+
+        normalized_pairs = {
+            self._build_media_operator_key(row.get('media_name'), row.get('operator_name'))
+            for row in rows
+            if row.get('media_name') and row.get('operator_name')
+        }
+        if not normalized_pairs:
+            return existing
+
+        cursor.execute("SELECT media_name, operator_name FROM copyright_content")
+        for row in cursor.fetchall():
+            key = self._build_media_operator_key(row.get('media_name'), row.get('operator_name'))
+            if key in normalized_pairs:
+                existing.add(key)
+
         return existing
 
     def _preload_scans(self, cursor, media_names: List[str] = None) -> Dict:
@@ -693,10 +746,14 @@ class ExcelImportService:
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
         try:
-            media_names_list = task.valid_data['media_name'].tolist()
-            existing_names = self._get_existing_names(cursor, media_names_list)
-            
-            enabled_customers = get_enabled_customers()
+            existing_pair_rows = [
+                {
+                    'media_name': str(row.get('media_name', '')).strip(),
+                    'operator_name': str(row.get('operator_name', '')).strip(),
+                }
+                for _, row in task.valid_data.iterrows()
+            ]
+            existing_pairs = self._get_existing_media_operator_pairs(cursor, existing_pair_rows)
 
             # 批量预计算拼音缩写
             unique_media_names = list(task.valid_data['media_name'].unique())
@@ -713,28 +770,41 @@ class ExcelImportService:
                 batch_df = task.valid_data.iloc[batch_start:batch_end]
                 
                 copyright_values = []
-                drama_batch = []  # [(customer_code, media_name, props_json, cleaned_data, episode_count)]
+                drama_batch = []  # [(row_key, customer_code, media_name, props_json, cleaned_data, episode_count)]
                 columns = batch_df.columns.tolist()
 
                 for row in batch_df.itertuples(index=False):
                     row_dict = dict(zip(columns, row))
                     media_name = str(row_dict.get('media_name', '')).strip()
-                    if media_name in existing_names:
+                    operator_name = str(row_dict.get('operator_name', '')).strip()
+                    row_key = self._build_media_operator_key(media_name, operator_name)
+
+                    if row_key in existing_pairs:
                         task.skipped_count += 1
+                        continue
+
+                    target_customers = self._resolve_target_customers_from_row(row_dict)
+                    if not target_customers:
+                        task.failed_count += 1
+                        task.errors.append({
+                            "row": task.processed_rows + len(copyright_values) + 2,
+                            "message": f"运营商无法匹配启用客户: {operator_name or '-'}"
+                        })
                         continue
 
                     # 清洗数据
                     cleaned = {f: (clean_numeric(row_dict.get(f), NUMERIC_FIELDS[f]) if f in NUMERIC_FIELDS else clean_string(row_dict.get(f))) for f in INSERT_FIELDS if f != 'drama_ids'}
                     cleaned['media_name'] = media_name
+                    cleaned['operator_name'] = operator_name
                     episode_count = int(cleaned.get('episode_count') or 0)
 
-                    # 为每个客户准备剧头数据（不加载scan_results，加速导入）
-                    for cust in enabled_customers:
+                    # 按运营商映射为目标客户生成剧头
+                    for cust in target_customers:
                         props = build_drama_props(cleaned, media_name, cust, {}, pinyin_cache)
-                        drama_batch.append((cust, media_name, json.dumps(props, ensure_ascii=False), cleaned.copy(), episode_count))
+                        drama_batch.append((row_key, cust, media_name, json.dumps(props, ensure_ascii=False), cleaned.copy(), episode_count))
 
-                    copyright_values.append(cleaned)
-                    existing_names.add(media_name)
+                    copyright_values.append((row_key, cleaned))
+                    existing_pairs.add(row_key)
                 
                 if not copyright_values:
                     task.processed_rows = batch_end
@@ -743,7 +813,7 @@ class ExcelImportService:
                 # 批量插入剧头，使用 LAST_INSERT_ID 获取实际的第一个ID
                 if drama_batch:
                     # 按插入顺序排序，确保ID计算正确
-                    insert_data = [(d[0], d[1], d[2]) for d in drama_batch]
+                    insert_data = [(d[1], d[2], d[3]) for d in drama_batch]
                     cursor.executemany(
                         "INSERT INTO drama_main (customer_code, drama_name, dynamic_properties) VALUES (%s, %s, %s)",
                         insert_data
@@ -754,12 +824,12 @@ class ExcelImportService:
                     first_id = cursor.fetchone()['first_id']
                     
                     # 根据插入顺序计算每条记录的ID
-                    drama_id_map = {}  # {media_name: {customer_code: drama_id}}
-                    for idx, (cust, media_name, _, cleaned, ep_count) in enumerate(drama_batch):
+                    drama_id_map = {}  # {row_key: {customer_code: drama_id}}
+                    for idx, (row_key, cust, media_name, _, cleaned, ep_count) in enumerate(drama_batch):
                         drama_id = first_id + idx
-                        if media_name not in drama_id_map:
-                            drama_id_map[media_name] = {}
-                        drama_id_map[media_name][cust] = drama_id
+                        if row_key not in drama_id_map:
+                            drama_id_map[row_key] = {}
+                        drama_id_map[row_key][cust] = drama_id
                         
                         # 收集子集生成信息（稍后异步生成）
                         if ep_count > 0:
@@ -773,8 +843,8 @@ class ExcelImportService:
                 
                 # 批量插入版权数据（不等待子集生成）
                 copyright_insert_values = []
-                for cleaned in copyright_values:
-                    drama_ids = drama_id_map.get(cleaned['media_name'], {})
+                for row_key, cleaned in copyright_values:
+                    drama_ids = drama_id_map.get(row_key, {})
                     values = tuple(cleaned.get(f) if f != 'drama_ids' else json.dumps(drama_ids) for f in INSERT_FIELDS)
                     copyright_insert_values.append(values)
                 

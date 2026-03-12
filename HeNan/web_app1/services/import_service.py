@@ -21,7 +21,8 @@ from utils import (
     get_pinyin_abbr, get_image_url, get_product_category, format_datetime,
     clean_numeric, clean_string, build_drama_props, build_episodes,
     extract_episode_number, find_scan_match, build_media_name_variants,
-    COLUMN_MAPPING, NUMERIC_FIELDS, INSERT_FIELDS, get_customer_codes_by_operator
+    COLUMN_MAPPING, NUMERIC_FIELDS, INSERT_FIELDS, get_customer_codes_by_operator,
+    normalize_date_to_ymd
 )
 
 
@@ -796,6 +797,7 @@ class ExcelImportService:
                     cleaned = {f: (clean_numeric(row_dict.get(f), NUMERIC_FIELDS[f]) if f in NUMERIC_FIELDS else clean_string(row_dict.get(f))) for f in INSERT_FIELDS if f != 'drama_ids'}
                     cleaned['media_name'] = media_name
                     cleaned['operator_name'] = operator_name
+                    cleaned['premiere_date'] = normalize_date_to_ymd(cleaned.get('premiere_date'))
                     episode_count = int(cleaned.get('episode_count') or 0)
 
                     # 按运营商映射为目标客户生成剧头

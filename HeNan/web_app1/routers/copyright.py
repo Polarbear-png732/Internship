@@ -20,7 +20,7 @@ from database import get_db
 from utils import (
     get_pinyin_abbr, get_content_dir, get_product_category,
     get_image_url, get_media_url, format_duration, format_datetime, get_genre,
-    get_customer_codes_by_operator
+    get_customer_codes_by_operator, normalize_date_to_ymd
 )
 from config import COPYRIGHT_FIELDS, CUSTOMER_CONFIGS
 from models import CopyrightCreate, CopyrightUpdate, CopyrightResponse
@@ -72,8 +72,36 @@ def _resolve_target_customers_from_data(data: Dict[str, Any]) -> List[str]:
     return get_customer_codes_by_operator(data.get('operator_name'), enabled_only=True)
 
 
+def _get_customer_operator_name(customer_code: str) -> str:
+    """根据客户代码获取运营商名称（用于版权筛选）。"""
+    cfg = CUSTOMER_CONFIGS.get(customer_code)
+    if not cfg:
+        raise HTTPException(status_code=400, detail=f"未知客户代码: {customer_code}")
+    name = str(cfg.get('name') or '').strip()
+    if not name:
+        raise HTTPException(status_code=400, detail=f"客户未配置名称: {customer_code}")
+    return name
+
+
+def _parse_selected_ids_param(selected_ids: Optional[str]) -> List[int]:
+    if not selected_ids:
+        return []
+
+    parsed_ids: List[int] = []
+    for part in str(selected_ids).split(','):
+        raw = part.strip()
+        if not raw:
+            continue
+        if not raw.isdigit():
+            raise HTTPException(status_code=400, detail=f"selected_ids 参数非法: {raw}")
+        parsed_ids.append(int(raw))
+
+    return parsed_ids
+
+
 def _build_copyright_filters(
     keyword: Optional[str] = None,
+    media_name: Optional[str] = None,
     upstream_copyright: Optional[str] = None,
     category_level1: Optional[str] = None,
     operator_name: Optional[str] = None,
@@ -85,6 +113,9 @@ def _build_copyright_filters(
     if keyword:
         conditions.append("media_name LIKE %s")
         params.append(f"%{keyword.strip()}%")
+    if media_name:
+        conditions.append("media_name LIKE %s")
+        params.append(f"%{media_name.strip()}%")
     if upstream_copyright:
         conditions.append("upstream_copyright LIKE %s")
         params.append(f"%{upstream_copyright.strip()}%")
@@ -106,6 +137,7 @@ def _build_copyright_filters(
 @router.get("")
 def get_copyright_list(
     keyword: Optional[str] = Query(None, description="搜索关键词"),
+    media_name: Optional[str] = Query(None, description="按介质名称筛选"),
     upstream_copyright: Optional[str] = Query(None, description="按上游版权方筛选"),
     category_level1: Optional[str] = Query(None, description="按一级分类筛选"),
     operator_name: Optional[str] = Query(None, description="按运营商筛选"),
@@ -116,7 +148,7 @@ def get_copyright_list(
     # 尝试从缓存获取
     cache_key = (
         f"{CacheKeys.COPYRIGHT_LIST}:"
-        f"{keyword or ''}:{upstream_copyright or ''}:{category_level1 or ''}:{operator_name or ''}:"
+        f"{keyword or ''}:{media_name or ''}:{upstream_copyright or ''}:{category_level1 or ''}:{operator_name or ''}:"
         f"{page}:{page_size}"
     )
     cached_result = cache.get(cache_key)
@@ -128,6 +160,7 @@ def get_copyright_list(
         
         where_clause, params = _build_copyright_filters(
             keyword=keyword,
+            media_name=media_name,
             upstream_copyright=upstream_copyright,
             category_level1=category_level1,
             operator_name=operator_name,
@@ -148,10 +181,54 @@ def get_copyright_list(
         }
         
         # 缓存结果（仅缓存第一页和无关键词的查询）
-        if page == 1 and not any([keyword, upstream_copyright, category_level1, operator_name]):
+        if page == 1 and not any([keyword, media_name, upstream_copyright, category_level1, operator_name]):
             cache.set(cache_key, result, ttl=60)  # 缓存1分钟
         
         return result
+
+
+@router.get("/selection/by-customer")
+def get_copyright_selection_by_customer(
+    customer_code: str = Query(..., description="客户代码"),
+    keyword: Optional[str] = Query(None, description="按介质名称关键词筛选"),
+    limit: int = Query(500, ge=1, le=2000, description="最大返回条数")
+):
+    """按客户筛选版权数据（用于剧头管理页勾选导出）。"""
+    customer_name = _get_customer_operator_name(customer_code)
+
+    conditions: List[str] = ["operator_name LIKE %s"]
+    params: List[Any] = [f"%{customer_name}%"]
+
+    if keyword and keyword.strip():
+        conditions.append("media_name LIKE %s")
+        params.append(f"%{keyword.strip()}%")
+
+    where_clause = f"WHERE {' AND '.join(conditions)}"
+
+    with get_db() as conn:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        cursor.execute(
+            f"""
+            SELECT *
+            FROM copyright_content
+            {where_clause}
+            ORDER BY created_at DESC, id DESC
+            LIMIT %s
+            """,
+            params + [limit]
+        )
+        items = cursor.fetchall()
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "customer_code": customer_code,
+            "customer_name": customer_name,
+            "list": items,
+            "total": len(items),
+        }
+    }
 
 
 @router.get("/template")
@@ -188,7 +265,6 @@ def download_import_template():
             '合作方式（采买/分成）': 18, 
             '制作地区': 12,
             '语言': 10, 
-            '语言-河南标准': 15, 
             '国别': 10,
             '导演': 15, 
             '编剧': 15, 
@@ -222,9 +298,49 @@ def download_import_template():
         
         for col_num, value in enumerate(columns):
             worksheet.write(0, col_num, value, header_format)
+
+        # 在日期相关列添加注释，提示统一填写格式
+        date_hint = '请统一按此格式填写：2026-03-02'
+        date_columns = ['首播日期', '版权开始时间', '版权结束时间']
+        for date_col in date_columns:
+            if date_col in columns:
+                col_idx = columns.index(date_col)
+                worksheet.write_comment(0, col_idx, date_hint)
+                # 输入提示：选中单元格时自动显示，不需要鼠标悬停
+                worksheet.data_validation(1, col_idx, 9999, col_idx, {
+                    'validate': 'any',
+                    'input_title': '日期填写格式',
+                    'input_message': '请按 2026-03-02 填写（例如：2026-03-02）'
+                })
         
         # 设置首行高度
         worksheet.set_row(0, 30)
+
+        # 新增说明页：更明显的填写指引，不影响导入（导入仍读取模板第一页）
+        guide_sheet = workbook.add_worksheet('填写说明')
+        title_format = workbook.add_format({
+            'bold': True,
+            'font_size': 14,
+            'font_color': '#1E40AF'
+        })
+        text_format = workbook.add_format({
+            'font_size': 11,
+            'text_wrap': True,
+            'valign': 'top'
+        })
+        highlight_format = workbook.add_format({
+            'bold': True,
+            'font_size': 12,
+            'font_color': '#B91C1C',
+            'bg_color': '#FEF2F2'
+        })
+
+        guide_sheet.set_column('A:A', 80)
+        guide_sheet.write('A1', '版权导入模板填写说明', title_format)
+        guide_sheet.write('A3', '1. 日期相关字段（首播日期、版权开始时间、版权结束时间）请统一填写为：2026-03-02', highlight_format)
+        guide_sheet.write('A5', '2. 仅填写模板中的字段；模板外字段会被忽略。', text_format)
+        guide_sheet.write('A6', '3. 运营商请填写单个省份名称（例如：河南移动 / 山东移动 / 甘肃移动 / 江西移动）。', text_format)
+        guide_sheet.write('A7', '4. 导入时系统读取第一个工作表（版权方数据模板），本说明页不会影响导入。', text_format)
     
     output.seek(0)
     filename_encoded = quote('版权方数据导入模板.xlsx')
@@ -239,27 +355,56 @@ def download_import_template():
 @router.get("/export")
 def export_copyright_to_excel(
     keyword: Optional[str] = Query(None, description="搜索关键词"),
+    media_name: Optional[str] = Query(None, description="按介质名称筛选"),
     upstream_copyright: Optional[str] = Query(None, description="按上游版权方筛选"),
     category_level1: Optional[str] = Query(None, description="按一级分类筛选"),
     operator_name: Optional[str] = Query(None, description="按运营商筛选"),
+    customer_code: Optional[str] = Query(None, description="按客户代码筛选运营商"),
+    selected_ids: Optional[str] = Query(None, description="按逗号分隔的版权ID列表导出"),
 ):
     """导出所有版权方数据为Excel文件（高性能版本）"""
+    selected_id_values = _parse_selected_ids_param(selected_ids)
+
+    if selected_id_values and not customer_code:
+        raise HTTPException(status_code=400, detail="按勾选导出时必须传 customer_code")
+
     with get_db() as conn:
         cursor = conn.cursor(pymysql.cursors.DictCursor)
         where_clause, params = _build_copyright_filters(
             keyword=keyword,
+            media_name=media_name,
             upstream_copyright=upstream_copyright,
             category_level1=category_level1,
             operator_name=operator_name,
         )
-        cursor.execute(f"SELECT * FROM copyright_content {where_clause} ORDER BY id", params)
+
+        conditions: List[str] = []
+        if where_clause:
+            conditions.append(where_clause.replace("WHERE ", "", 1))
+
+        if customer_code:
+            customer_name = _get_customer_operator_name(customer_code)
+            conditions.append("operator_name LIKE %s")
+            params.append(f"%{customer_name}%")
+
+        if selected_id_values:
+            placeholders = ','.join(['%s'] * len(selected_id_values))
+            conditions.append(f"id IN ({placeholders})")
+            params.extend(selected_id_values)
+
+        final_where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        cursor.execute(f"SELECT * FROM copyright_content {final_where_clause} ORDER BY created_at DESC, id DESC", params)
         items = cursor.fetchall()
     
     export_data = []
-    for item in items:
+    for export_index, item in enumerate(items, start=1):
         row = {}
         for db_col, cn_col in COPYRIGHT_EXPORT_COLUMNS.items():
-            value = item.get(db_col, '')
+            # 序号列按导出顺序从 1 递增，不使用数据库内 id 字段
+            if db_col == 'id':
+                value = export_index
+            else:
+                value = item.get(db_col, '')
 
             # 集数统一导出为整数，避免出现 30.0 / 7.0
             if db_col == 'episode_count':
@@ -294,10 +439,10 @@ def export_copyright_to_excel(
     output = BytesIO()
     # 使用 xlsxwriter 引擎，性能更好
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, sheet_name='版权方数据', index=False)
+        df.to_excel(writer, sheet_name='版权数据', index=False)
         
         workbook = writer.book
-        worksheet = writer.sheets['版权方数据']
+        worksheet = writer.sheets['版权数据']
         text_format = workbook.add_format({'num_format': '@'})
         
         # 设置列宽（按照数据库表结构顺序，不包含序号(自定义)）
@@ -318,7 +463,6 @@ def export_copyright_to_excel(
             '合作方式（采买/分成）': 18, 
             '制作地区': 12,
             '语言': 10, 
-            '语言-河南标准': 15, 
             '国别': 10,
             '导演': 15, 
             '编剧': 15, 
@@ -399,6 +543,9 @@ def create_copyright(data: Dict[str, Any] = Body(...)):
     if episode_count <= 0:
         raise HTTPException(status_code=400, detail="集数为必填项，且必须大于0")
     data['episode_count'] = episode_count
+
+    if 'premiere_date' in data:
+        data['premiere_date'] = normalize_date_to_ymd(data.get('premiere_date'))
     
     media_name = data['media_name']
     
@@ -461,6 +608,9 @@ def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
     
     with get_db() as conn:
         cursor = conn.cursor(pymysql.cursors.DictCursor)
+
+        if 'premiere_date' in data:
+            data['premiere_date'] = normalize_date_to_ymd(data.get('premiere_date'))
         
         # 获取原数据
         cursor.execute("SELECT * FROM copyright_content WHERE id = %s", (item_id,))

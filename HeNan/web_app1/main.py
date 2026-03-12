@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from routers import customers, dramas, episodes, copyright, scan_result, notify
 from services.notify_service import start_notify_scheduler, stop_notify_scheduler
@@ -18,7 +19,18 @@ from logging_config import logger
 # FastAPI 应用
 # ============================================================
 
-app = FastAPI(title="运营管理平台", description="剧集信息管理系统")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期：启动/停止邮件提醒调度器。"""
+    start_notify_scheduler()
+    try:
+        yield
+    finally:
+        stop_notify_scheduler()
+
+
+app = FastAPI(title="运营管理平台", description="剧集信息管理系统", lifespan=lifespan)
 
 
 # ============================================================
@@ -108,18 +120,6 @@ app.include_router(episodes.router)
 app.include_router(copyright.router)
 app.include_router(scan_result.router)
 app.include_router(notify.router)
-
-
-@app.on_event("startup")
-async def on_startup():
-    """启动应用内邮件提醒调度器。"""
-    start_notify_scheduler()
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    """停止应用内邮件提醒调度器。"""
-    stop_notify_scheduler()
 
 
 @app.get("/")

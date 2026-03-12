@@ -129,7 +129,8 @@ def save_notify_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     merged["recipients"] = _normalize_recipients(merged.get("recipients"))
 
     schedule = merged.get("schedule", {})
-    schedule.setdefault("day", 1)
+    schedule_day = int(schedule.get("day", 1) or 1)
+    schedule["day"] = max(1, min(28, schedule_day))
     schedule_time = str(schedule.get("time", "09:00")).strip() or "09:00"
     schedule["time"] = schedule_time
     merged["schedule"] = schedule
@@ -137,7 +138,7 @@ def save_notify_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     smtp = merged.get("smtp", {})
     smtp["port"] = int(smtp.get("port", 587) or 587)
     smtp["use_tls"] = bool(smtp.get("use_tls", True))
-
+    
     incoming_password = payload.get("smtp", {}).get("password") if isinstance(payload.get("smtp"), dict) else None
     if incoming_password in (None, ""):
         smtp["password"] = old.get("smtp", {}).get("password", "")
@@ -332,6 +333,9 @@ def run_monthly_notify(force: bool = False, trigger: str = "manual") -> Dict[str
     now = datetime.now()
     config = load_notify_config()
 
+    schedule_day = int(config.get("schedule", {}).get("day", 1) or 1)
+    schedule_day = max(1, min(28, schedule_day))
+
     if not config.get("enabled", False) and not force:
         return {"status": "skipped", "message": "邮件提醒已禁用"}
 
@@ -339,8 +343,8 @@ def run_monthly_notify(force: bool = False, trigger: str = "manual") -> Dict[str
     if not ok:
         return {"status": "failed", "message": message}
 
-    if now.day != 1 and not force:
-        return {"status": "skipped", "message": "今天不是每月1号，跳过执行"}
+    if now.day != schedule_day and not force:
+        return {"status": "skipped", "message": f"今天不是每月{schedule_day}号，跳过执行"}
 
     preview = query_next_month_expiring_records()
     target_month = preview["window"]["month"]
@@ -409,10 +413,12 @@ def _scheduled_job() -> None:
 
 def _run_startup_compensation() -> None:
     config = load_notify_config()
+    schedule_day = int(config.get("schedule", {}).get("day", 1) or 1)
+    schedule_day = max(1, min(28, schedule_day))
     hour, minute = _parse_schedule_time(config)
     now = datetime.now()
     target_time = time(hour=hour, minute=minute)
-    if now.day == 1 and now.time() >= target_time:
+    if now.day == schedule_day and now.time() >= target_time:
         try:
             result = run_monthly_notify(force=False, trigger="startup_compensation")
             logger.info(f"启动补偿检查结果: {result.get('status')} - {result.get('message')}")

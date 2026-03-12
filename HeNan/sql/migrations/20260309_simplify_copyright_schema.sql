@@ -123,3 +123,64 @@ SET @add_media_name_idx_sql = (
 PREPARE stmt_add_media_name_idx FROM @add_media_name_idx_sql;
 EXECUTE stmt_add_media_name_idx;
 DEALLOCATE PREPARE stmt_add_media_name_idx;
+
+-- 5) language_henan 字段下线：直接删除（存在才执行）
+
+SET @drop_language_henan_sql = (
+    SELECT IF(
+        EXISTS(
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'copyright_content'
+              AND COLUMN_NAME = 'language_henan'
+        ),
+        'ALTER TABLE copyright_content DROP COLUMN language_henan',
+        'SELECT "language_henan already dropped"'
+    )
+);
+PREPARE stmt_drop_language_henan FROM @drop_language_henan_sql;
+EXECUTE stmt_drop_language_henan;
+DEALLOCATE PREPARE stmt_drop_language_henan;
+
+-- 6) 清空业务数据：保留 video_scan_result，清空其它所有表
+-- 说明：通过游标逐表执行单条 TRUNCATE，避免 PREPARE 执行多语句导致 1064
+DROP PROCEDURE IF EXISTS truncate_tables_except_video_scan_result;
+
+DELIMITER $$
+CREATE PROCEDURE truncate_tables_except_video_scan_result()
+BEGIN
+    DECLARE done INT DEFAULT 0;
+    DECLARE v_table_name VARCHAR(255);
+
+    DECLARE cur CURSOR FOR
+        SELECT TABLE_NAME
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_TYPE = 'BASE TABLE'
+          AND TABLE_NAME <> 'video_scan_result'
+        ORDER BY TABLE_NAME;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    SET FOREIGN_KEY_CHECKS = 0;
+
+    OPEN cur;
+    read_loop: LOOP
+        FETCH cur INTO v_table_name;
+        IF done = 1 THEN
+            LEAVE read_loop;
+        END IF;
+
+        SET @truncate_one_sql = CONCAT('TRUNCATE TABLE `', v_table_name, '`');
+        PREPARE stmt_truncate_one FROM @truncate_one_sql;
+        EXECUTE stmt_truncate_one;
+        DEALLOCATE PREPARE stmt_truncate_one;
+    END LOOP;
+    CLOSE cur;
+
+    SET FOREIGN_KEY_CHECKS = 1;
+END$$
+DELIMITER ;
+
+CALL truncate_tables_except_video_scan_result();
+DROP PROCEDURE IF EXISTS truncate_tables_except_video_scan_result;

@@ -10,6 +10,7 @@ import pandas as pd
 from io import BytesIO
 from urllib.parse import quote
 
+from database import get_db_cursor
 from config import CUSTOMER_CONFIGS
 from logging_config import logger
 
@@ -29,6 +30,22 @@ from services.drama_service import (
 from services.export_service import ExcelExportService
 
 router = APIRouter(prefix="/api/dramas", tags=["剧集管理"])
+
+
+def _parse_selected_drama_ids(selected_ids: Optional[str]) -> List[int]:
+    if not selected_ids:
+        return []
+
+    parsed_ids: List[int] = []
+    for part in str(selected_ids).split(','):
+        raw = part.strip()
+        if not raw:
+            continue
+        if not raw.isdigit():
+            raise HTTPException(status_code=400, detail=f"selected_ids 参数非法: {raw}")
+        parsed_ids.append(int(raw))
+
+    return parsed_ids
 
 
 # ============================================================
@@ -84,6 +101,75 @@ def get_customer_columns(customer_code: str):
             "episode_columns": _get_column_names(customer_code, 'episode'),
             "export_sheets": config.get('export_sheets', ['剧头', '子集'])
         }
+    }
+
+
+@router.get("/selection/by-customer")
+def get_drama_selection_by_customer(
+    customer_code: str = Query(..., description="客户代码"),
+    keyword: Optional[str] = Query(None, description="按剧集名称关键词筛选"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(10, ge=1, le=100, description="每页数量"),
+):
+    """按客户筛选剧头数据（用于剧头管理页勾选批量导出）。"""
+    if customer_code not in CUSTOMER_CONFIGS:
+        raise HTTPException(status_code=404, detail=f"未知的客户代码: {customer_code}")
+
+    with get_db_cursor() as (cursor, _conn):
+        conditions = ["d.customer_code = %s"]
+        params: List[object] = [customer_code]
+
+        if keyword and keyword.strip():
+            conditions.append("d.drama_name LIKE %s")
+            params.append(f"%{keyword.strip()}%")
+
+        where_clause = f"WHERE {' AND '.join(conditions)}"
+
+        cursor.execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM drama_main d
+            {where_clause}
+            """,
+            params,
+        )
+        total = int((cursor.fetchone() or {}).get('total', 0))
+
+        offset = (page - 1) * page_size
+        cursor.execute(
+            f"""
+            SELECT
+                d.drama_id,
+                d.drama_name,
+                d.created_at,
+                d.updated_at,
+                COALESCE(ep.episode_count, 0) AS episode_count
+            FROM drama_main d
+            LEFT JOIN (
+                SELECT drama_id, COUNT(*) AS episode_count
+                FROM drama_episode
+                GROUP BY drama_id
+            ) ep ON ep.drama_id = d.drama_id
+            {where_clause}
+            ORDER BY d.created_at DESC, d.drama_id DESC
+            LIMIT %s OFFSET %s
+            """,
+            params + [page_size, offset],
+        )
+        items = cursor.fetchall()
+
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "customer_code": customer_code,
+            "customer_name": CUSTOMER_CONFIGS[customer_code].get('name', customer_code),
+            "list": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size if total else 0,
+        },
     }
 
 
@@ -162,6 +248,49 @@ def export_customer_dramas(customer_code: str):
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(f'{customer_name}_注入表.xlsx')}"}
+    )
+
+
+@router.get("/export/batch/by-ids")
+def export_batch_dramas_by_ids(
+    customer_code: str = Query(..., description="客户代码"),
+    selected_ids: str = Query(..., description="按逗号分隔的剧头ID列表"),
+):
+    """按勾选的剧头ID批量导出剧头+子集（客户范围内）。"""
+    if customer_code not in CUSTOMER_CONFIGS:
+        raise HTTPException(status_code=404, detail=f"未知的客户代码: {customer_code}")
+
+    drama_ids = _parse_selected_drama_ids(selected_ids)
+    if not drama_ids:
+        raise HTTPException(status_code=400, detail="请至少选择一个剧头")
+
+    dramas = DramaQueryService.get_dramas_by_customer(customer_code)
+    drama_map = {int(d.get('drama_id')): d for d in dramas if d.get('drama_id') is not None}
+    selected_dramas = [drama_map.get(i) for i in drama_ids if i in drama_map]
+    selected_dramas = [d for d in selected_dramas if d]
+
+    if not selected_dramas:
+        raise HTTPException(status_code=404, detail="未找到匹配的剧头数据")
+
+    selected_drama_ids = [int(d['drama_id']) for d in selected_dramas]
+    episodes = DramaQueryService.get_episodes_by_drama_ids(selected_drama_ids)
+
+    preprocess_dramas(selected_dramas)
+    preprocess_episodes(episodes)
+
+    output = ExcelExportService.export_customer_dramas(selected_dramas, episodes, customer_code)
+
+    config = CUSTOMER_CONFIGS[customer_code]
+    customer_name = config.get('name', customer_code)
+    if len(selected_dramas) == 1:
+        filename = f"{customer_name}_{selected_dramas[0]['drama_name']}_注入表.xlsx"
+    else:
+        filename = f"{customer_name}_批量导出_{len(selected_dramas)}个剧集.xlsx"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
 
 

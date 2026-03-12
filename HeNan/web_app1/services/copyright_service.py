@@ -35,7 +35,6 @@ COPYRIGHT_EXPORT_COLUMNS = {
     'cooperation_mode': '合作方式（采买/分成）',
     'production_region': '制作地区',
     'language': '语言',
-    'language_henan': '语言-河南标准',
     'country': '国别',
     'director': '导演',
     'screenwriter': '编剧',

@@ -14,6 +14,7 @@
 // ==================== 版权方数据管理 ====================
 
 let copyrightCurrentPage = 1;
+let isCopyrightCopyMode = false;
 let backfillTaskState = {
     taskId: null,
     pollTimer: null
@@ -22,6 +23,7 @@ let backfillTaskState = {
 function getCopyrightFilterParams() {
     return {
         keyword: document.getElementById('copyright-search-input')?.value?.trim() || '',
+        media_name: document.getElementById('copyright-filter-media-name')?.value?.trim() || '',
         upstream_copyright: document.getElementById('copyright-filter-upstream')?.value?.trim() || '',
         category_level1: document.getElementById('copyright-filter-category1')?.value?.trim() || '',
         operator_name: document.getElementById('copyright-filter-operator')?.value?.trim() || ''
@@ -36,6 +38,69 @@ function buildCopyrightQuery(params) {
         }
     });
     return query.toString();
+}
+
+function setCopyrightCopyMode(enabled) {
+    isCopyrightCopyMode = !!enabled;
+    const form = document.getElementById('add-copyright-form');
+    if (!form) return;
+
+    const editableIds = new Set([
+        'copyright-operator-name',
+        'copyright-start-date',
+        'copyright-end-date'
+    ]);
+
+    form.querySelectorAll('input, textarea, select').forEach((el) => {
+        const id = el.id || '';
+        if (id === 'copyright-edit-id') return;
+        if (!enabled) {
+            el.disabled = false;
+            return;
+        }
+        el.disabled = !editableIds.has(id);
+    });
+}
+
+function populateCopyrightForm(item) {
+    // 基本信息
+    document.getElementById('copyright-media-name').value = item.media_name || '';
+    document.getElementById('copyright-operator-name').value = item.operator_name || '';
+    document.getElementById('copyright-upstream').value = item.upstream_copyright || '';
+    document.getElementById('copyright-episode-count').value = item.episode_count || '';
+    document.getElementById('copyright-single-duration').value = item.single_episode_duration || '';
+    document.getElementById('copyright-total-duration').value = item.total_duration || '';
+    document.getElementById('copyright-production-year').value = item.production_year || '';
+    document.getElementById('copyright-premiere-date').value = item.premiere_date || '';
+    document.getElementById('copyright-production-region').value = item.production_region || '';
+    document.getElementById('copyright-country').value = item.country || '';
+    document.getElementById('copyright-language').value = item.language || '';
+    document.getElementById('copyright-video-quality').value = item.video_quality || '';
+
+    // 分类信息
+    document.getElementById('copyright-category1').value = item.category_level1 || '';
+    document.getElementById('copyright-category2').value = item.category_level2 || '';
+
+    // 版权信息
+    document.getElementById('copyright-authorization-region').value = item.authorization_region || '';
+    document.getElementById('copyright-authorization-platform').value = item.authorization_platform || '';
+    document.getElementById('copyright-cooperation-mode').value = item.cooperation_mode || '';
+    document.getElementById('copyright-start-date').value = item.copyright_start_date || '';
+    document.getElementById('copyright-end-date').value = item.copyright_end_date || '';
+    document.getElementById('copyright-license-number').value = item.license_number || '';
+    document.getElementById('copyright-exclusive').value = item.exclusive_status || '';
+    document.getElementById('copyright-rating').value = item.rating || '';
+
+    // 主创信息
+    document.getElementById('copyright-director').value = item.director || '';
+    document.getElementById('copyright-screenwriter').value = item.screenwriter || '';
+    document.getElementById('copyright-author').value = item.author || '';
+    document.getElementById('copyright-cast').value = item.cast_members || '';
+
+    // 描述信息
+    document.getElementById('copyright-keywords').value = item.keywords || '';
+    document.getElementById('copyright-recommendation').value = item.recommendation || '';
+    document.getElementById('copyright-synopsis').value = item.synopsis || '';
 }
 
 // 加载版权方数据列表
@@ -90,9 +155,11 @@ function closeCopyrightFilterPanel() {
 }
 
 function resetCopyrightFilters() {
+    const mediaName = document.getElementById('copyright-filter-media-name');
     const upstream = document.getElementById('copyright-filter-upstream');
     const category = document.getElementById('copyright-filter-category1');
     const operator = document.getElementById('copyright-filter-operator');
+    if (mediaName) mediaName.value = '';
     if (upstream) upstream.value = '';
     if (category) category.value = '';
     if (operator) operator.value = '';
@@ -121,7 +188,7 @@ function renderCopyrightTable(items) {
     const tbody = document.getElementById('copyright-table-body');
     
     if (!items || items.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="32" class="px-6 py-12 text-center text-slate-500"><div class="flex flex-col items-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg><span class="text-base">暂无版权方数据</span></div></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="31" class="px-6 py-12 text-center text-slate-500"><div class="flex flex-col items-center gap-3"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg><span class="text-base">暂无版权方数据</span></div></td></tr>';
         return;
     }
     
@@ -149,7 +216,6 @@ function renderCopyrightTable(items) {
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${truncate(item.cooperation_mode, 10)}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${truncate(item.production_region, 10)}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.language || '-'}</td>
-                <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.language_henan || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${item.country || '-'}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${truncate(item.director, 15)}</td>
                 <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${truncate(item.screenwriter, 15)}</td>
@@ -169,6 +235,10 @@ function renderCopyrightTable(items) {
                         <button onclick="editCopyrightContent(${item.id})" 
                             class="text-blue-600 hover:text-blue-700 font-medium text-sm inline-flex items-center gap-1 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-lg transition-all">
                             编辑
+                        </button>
+                        <button onclick="copyCopyrightContent(${item.id})" 
+                            class="text-emerald-600 hover:text-emerald-700 font-medium text-sm inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-1 rounded-lg transition-all">
+                            复制
                         </button>
                         <button onclick="deleteCopyrightContent(${item.id}, '${(item.media_name || '').replace(/'/g, "\\'")}')" 
                             class="text-red-600 hover:text-red-700 font-medium text-sm inline-flex items-center gap-1 bg-red-50 hover:bg-red-100 border border-red-200 px-2 py-1 rounded-lg transition-all">
@@ -208,6 +278,7 @@ function renderCopyrightPagination(data) {
 
 // 打开添加版权方数据模态框
 async function openAddCopyrightModal() {
+    setCopyrightCopyMode(false);
     document.getElementById('copyright-modal-title').innerHTML = `
         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600">
             <line x1="12" x2="12" y1="5" y2="19"/>
@@ -224,6 +295,7 @@ async function openAddCopyrightModal() {
 
 // 关闭添加版权方数据模态框
 function closeAddCopyrightModal() {
+    setCopyrightCopyMode(false);
     document.getElementById('add-copyright-modal').classList.add('hidden');
     // 清空edit-id，防止下次打开时误用
     document.getElementById('copyright-edit-id').value = '';
@@ -234,6 +306,7 @@ function closeAddCopyrightModal() {
 // 编辑版权方数据
 async function editCopyrightContent(id) {
     try {
+        setCopyrightCopyMode(false);
         const response = await fetch(`${API_BASE}/copyright/${id}`);
         const result = await response.json();
         
@@ -249,48 +322,41 @@ async function editCopyrightContent(id) {
             `;
             
             document.getElementById('copyright-edit-id').value = id;
-            
-            // 基本信息
-            document.getElementById('copyright-media-name').value = item.media_name || '';
-            document.getElementById('copyright-operator-name').value = item.operator_name || '';
-            document.getElementById('copyright-upstream').value = item.upstream_copyright || '';
-            document.getElementById('copyright-episode-count').value = item.episode_count || '';
-            document.getElementById('copyright-single-duration').value = item.single_episode_duration || '';
-            document.getElementById('copyright-total-duration').value = item.total_duration || '';
-            document.getElementById('copyright-production-year').value = item.production_year || '';
-            document.getElementById('copyright-premiere-date').value = item.premiere_date || '';
-            document.getElementById('copyright-production-region').value = item.production_region || '';
-            document.getElementById('copyright-country').value = item.country || '';
-            document.getElementById('copyright-language').value = item.language || '';
-            document.getElementById('copyright-language-henan').value = item.language_henan || '';
-            document.getElementById('copyright-video-quality').value = item.video_quality || '';
-            
-            // 分类信息
-            document.getElementById('copyright-category1').value = item.category_level1 || '';
-            document.getElementById('copyright-category2').value = item.category_level2 || '';
-            
-            // 版权信息
-            document.getElementById('copyright-authorization-region').value = item.authorization_region || '';
-            document.getElementById('copyright-authorization-platform').value = item.authorization_platform || '';
-            document.getElementById('copyright-cooperation-mode').value = item.cooperation_mode || '';
-            document.getElementById('copyright-start-date').value = item.copyright_start_date || '';
-            document.getElementById('copyright-end-date').value = item.copyright_end_date || '';
-            document.getElementById('copyright-license-number').value = item.license_number || '';
-            document.getElementById('copyright-exclusive').value = item.exclusive_status || '';
-            document.getElementById('copyright-rating').value = item.rating || '';
-            
-            // 主创信息
-            document.getElementById('copyright-director').value = item.director || '';
-            document.getElementById('copyright-screenwriter').value = item.screenwriter || '';
-            document.getElementById('copyright-author').value = item.author || '';
-            document.getElementById('copyright-cast').value = item.cast_members || '';
-            
-            // 描述信息
-            document.getElementById('copyright-keywords').value = item.keywords || '';
-            document.getElementById('copyright-recommendation').value = item.recommendation || '';
-            document.getElementById('copyright-synopsis').value = item.synopsis || '';
+            populateCopyrightForm(item);
 
             document.getElementById('add-copyright-modal').classList.remove('hidden');
+        } else {
+            showError('获取数据失败：' + result.message);
+        }
+    } catch (error) {
+        showError('获取数据失败：' + error.message);
+    }
+}
+
+// 复制版权方数据：仅允许修改运营商和版权起止时间，其他字段沿用原数据新增
+async function copyCopyrightContent(id) {
+    try {
+        const response = await fetch(`${API_BASE}/copyright/${id}`);
+        const result = await response.json();
+
+        if (result.code === 200) {
+            const item = result.data;
+
+            document.getElementById('copyright-modal-title').innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-600">
+                    <rect x="3" y="3" width="14" height="14" rx="2" ry="2"></rect>
+                    <path d="M7 21h14a2 2 0 0 0 2-2V7"></path>
+                </svg>
+                复制新增版权数据
+            `;
+
+            // 清空ID，确保走新增逻辑
+            document.getElementById('copyright-edit-id').value = '';
+            populateCopyrightForm(item);
+            setCopyrightCopyMode(true);
+
+            document.getElementById('add-copyright-modal').classList.remove('hidden');
+            showInfo('复制模式：请只修改运营商、版权开始时间、版权结束时间');
         } else {
             showError('获取数据失败：' + result.message);
         }
@@ -347,7 +413,6 @@ async function saveCopyrightContent() {
         production_region: document.getElementById('copyright-production-region').value.trim() || null,
         country: document.getElementById('copyright-country').value.trim() || null,
         language: document.getElementById('copyright-language').value.trim() || null,
-        language_henan: document.getElementById('copyright-language-henan').value.trim() || null,
         video_quality: document.getElementById('copyright-video-quality').value.trim() || null,
         
         // 分类信息
@@ -400,7 +465,13 @@ async function saveCopyrightContent() {
         const result = await response.json();
         
         if (result.code === 200) {
-            showSuccess(editId ? '更新成功！' : '添加成功！自动创建了剧头和子集数据');
+            if (editId) {
+                showSuccess('更新成功！');
+            } else if (isCopyrightCopyMode) {
+                showSuccess('复制新增成功！已根据运营商创建目标省份的剧头和子集数据');
+            } else {
+                showSuccess('添加成功！自动创建了剧头和子集数据');
+            }
             closeAddCopyrightModal();
             loadCopyrightList(copyrightCurrentPage);
         } else {

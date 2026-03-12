@@ -122,6 +122,11 @@ function showDramaHeaderManagement() {
     currentCustomerId = null;
     currentCustomerCode = null;
     currentCustomerName = '';
+
+    const customerDramaSelectionArea = document.getElementById('customer-drama-selection-area');
+    if (customerDramaSelectionArea) {
+        customerDramaSelectionArea.classList.add('hidden');
+    }
     
     // 重置搜索框为默认状态（显示普通搜索框，隐藏江苏容器）
     const jiangsuContainer = document.getElementById('jiangsu-search-container');
@@ -232,6 +237,14 @@ function viewCustomerDramas(customerCode, customerName) {
     currentCustomerCode = customerCode;
     currentCustomerName = customerName;
     currentCustomerId = customerCode;  // 兼容旧代码
+
+    customerDramaSelectionState.selectedIds.clear();
+    customerDramaSelectionState.allIds = [];
+    customerDramaPagingState.page = 1;
+    customerDramaPagingState.total = 0;
+    customerDramaPagingState.totalPages = 0;
+    customerDramaPagingState.keyword = '';
+    customerDramaListRendered = false;
     
     console.log('=== viewCustomerDramas ===');
     console.log('customerCode:', customerCode);
@@ -302,6 +315,9 @@ function viewCustomerDramas(customerCode, customerName) {
     if (batchSelectionArea) {
         batchSelectionArea.classList.add('hidden');
     }
+
+    // 自动加载当前省份对应的剧头数据（独立区域，不影响原搜索）
+    loadCustomerDramaSelectionList();
 }
 
 // 导出Excel
@@ -1304,5 +1320,302 @@ async function deleteDramaHeader(dramaId, dramaName) {
         }
     } catch (error) {
         showError('删除失败：' + error.message);
+    }
+}
+
+// ==================== 剧头管理页剧头勾选导出（独立，不影响原搜索） ====================
+
+let customerDramaSelectionState = {
+    selectedIds: new Set(),
+    allIds: []
+};
+
+let customerDramaListRendered = false;
+
+let customerDramaPagingState = {
+    page: 1,
+    pageSize: 10,
+    total: 0,
+    totalPages: 0,
+    keyword: ''
+};
+
+function _escapeHtml(text) {
+    return String(text ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function _formatDisplayDateTime(value) {
+    if (!value) return '-';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function _extractDramaKeyword() {
+    return (document.getElementById('header-search-input')?.value || '').trim();
+}
+
+function updateCustomerDramaPagingUI() {
+    const pageInfo = document.getElementById('customer-drama-page-info');
+    const prevBtn = document.getElementById('customer-drama-prev-btn');
+    const nextBtn = document.getElementById('customer-drama-next-btn');
+
+    const page = customerDramaPagingState.page;
+    const totalPages = Math.max(1, customerDramaPagingState.totalPages || 1);
+    const total = customerDramaPagingState.total || 0;
+
+    if (pageInfo) {
+        pageInfo.textContent = `第 ${page} / ${totalPages} 页，共 ${total} 条`;
+    }
+    if (prevBtn) {
+        prevBtn.disabled = page <= 1;
+    }
+    if (nextBtn) {
+        nextBtn.disabled = page >= totalPages;
+    }
+}
+
+async function loadCustomerDramaSelectionList(keyword = undefined, page = undefined) {
+    if (!currentCustomerCode) {
+        return;
+    }
+
+    if (keyword !== undefined) {
+        customerDramaPagingState.keyword = keyword;
+    }
+    if (page !== undefined) {
+        customerDramaPagingState.page = page;
+    }
+
+    const effectiveKeyword = customerDramaPagingState.keyword || '';
+    const effectivePage = customerDramaPagingState.page || 1;
+
+    const resultContainer = document.getElementById('header-search-result');
+    if (resultContainer) {
+        resultContainer.classList.add('hidden');
+        resultContainer.innerHTML = '';
+    }
+
+    const selectionArea = document.getElementById('customer-drama-selection-area');
+    const tableBody = document.getElementById('customer-drama-table-body');
+    if (!selectionArea || !tableBody) {
+        return;
+    }
+
+    selectionArea.classList.remove('hidden');
+    if (!customerDramaListRendered) {
+        tableBody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-slate-500">正在加载剧头数据...</td></tr>';
+    }
+    updateCustomerDramaPagingUI();
+
+    try {
+        const url = new URL(`${API_BASE}/dramas/selection/by-customer`, window.location.origin);
+        url.searchParams.set('customer_code', currentCustomerCode);
+        url.searchParams.set('page', String(effectivePage));
+        url.searchParams.set('page_size', String(customerDramaPagingState.pageSize));
+        if (effectiveKeyword) {
+            url.searchParams.set('keyword', effectiveKeyword);
+        }
+
+        const response = await fetch(url.toString());
+        const result = await response.json();
+        if (!response.ok || result.code !== 200) {
+            throw new Error(result.detail || result.message || '加载失败');
+        }
+
+        const rows = result.data?.list || [];
+        customerDramaPagingState.total = Number(result.data?.total || 0);
+        customerDramaPagingState.totalPages = Number(result.data?.total_pages || 0);
+        customerDramaPagingState.page = Number(result.data?.page || effectivePage);
+        customerDramaSelectionState.allIds = rows.map(row => String(row.drama_id));
+        updateCustomerDramaPagingUI();
+
+        if (rows.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="5" class="px-6 py-8 text-center text-slate-500">当前省份暂无剧头数据</td></tr>';
+            updateCustomerDramaSelectedCount();
+            return;
+        }
+
+        tableBody.innerHTML = rows.map((row, index) => {
+            const rowClass = index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30';
+            const dramaId = _escapeHtml(String(row.drama_id || ''));
+            const dramaName = _escapeHtml(String(row.drama_name || '-'));
+            const episodeCount = _escapeHtml(String(row.episode_count ?? 0));
+            const createdAt = _escapeHtml(_formatDisplayDateTime(row.created_at));
+
+            return `
+                <tr class="${rowClass} hover:bg-blue-50/50 transition-all duration-200 border-b border-slate-100 group">
+                    <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                        <input type="checkbox" id="customer-drama-checkbox-${index}" value="${dramaId}"
+                            onchange="toggleCustomerDramaSelection('${dramaId}')"
+                            ${customerDramaSelectionState.selectedIds.has(String(row.drama_id)) ? 'checked' : ''}
+                            class="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500">
+                    </td>
+                    <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${dramaId || '-'}</td>
+                    <td class="px-4 py-3 text-sm font-medium text-slate-900 whitespace-nowrap">${dramaName}</td>
+                    <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${episodeCount}</td>
+                    <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${createdAt}</td>
+                </tr>
+            `;
+        }).join('');
+
+        customerDramaListRendered = true;
+        updateCustomerDramaSelectedCount();
+    } catch (error) {
+        tableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-8 text-center text-red-500">加载失败：${_escapeHtml(error.message)}</td></tr>`;
+        showError('加载剧头数据失败：' + error.message);
+    }
+}
+
+function prevCustomerDramaPage(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    if (customerDramaPagingState.page <= 1) {
+        return;
+    }
+    loadCustomerDramaSelectionList(undefined, customerDramaPagingState.page - 1);
+}
+
+function nextCustomerDramaPage(event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    const totalPages = Math.max(1, customerDramaPagingState.totalPages || 1);
+    if (customerDramaPagingState.page >= totalPages) {
+        return;
+    }
+    loadCustomerDramaSelectionList(undefined, customerDramaPagingState.page + 1);
+}
+
+function toggleCustomerDramaSelection(dramaId) {
+    if (customerDramaSelectionState.selectedIds.has(dramaId)) {
+        customerDramaSelectionState.selectedIds.delete(dramaId);
+    } else {
+        customerDramaSelectionState.selectedIds.add(dramaId);
+    }
+    updateCustomerDramaSelectedCount();
+}
+
+function updateCustomerDramaSelectedCount() {
+    const count = customerDramaSelectionState.selectedIds.size;
+    const countElement = document.getElementById('drama-selected-count');
+    const exportBtn = document.getElementById('customer-drama-export-btn');
+
+    if (countElement) {
+        countElement.textContent = `已选择 ${count} 个`;
+    }
+    if (exportBtn) {
+        exportBtn.disabled = count === 0;
+    }
+}
+
+function selectAllCustomerDramaRows() {
+    customerDramaSelectionState.allIds.forEach(id => customerDramaSelectionState.selectedIds.add(id));
+    customerDramaSelectionState.allIds.forEach((id, index) => {
+        const checkbox = document.getElementById(`customer-drama-checkbox-${index}`);
+        if (checkbox) checkbox.checked = true;
+    });
+    updateCustomerDramaSelectedCount();
+}
+
+function clearAllCustomerDramaSelections() {
+    customerDramaSelectionState.selectedIds.clear();
+    customerDramaSelectionState.allIds.forEach((id, index) => {
+        const checkbox = document.getElementById(`customer-drama-checkbox-${index}`);
+        if (checkbox) checkbox.checked = false;
+    });
+    updateCustomerDramaSelectedCount();
+}
+
+async function exportSelectedCustomerDramas() {
+    if (!currentCustomerCode) {
+        showError('请先从用户列表选择一个客户');
+        return;
+    }
+
+    const selectedIds = Array.from(customerDramaSelectionState.selectedIds);
+    if (selectedIds.length === 0) {
+        showError('请至少选择一个剧头');
+        return;
+    }
+
+    const exportBtn = document.getElementById('customer-drama-export-btn');
+    if (!exportBtn) {
+        return;
+    }
+
+    let successCount = 0;
+    const failedIds = [];
+
+    try {
+        exportBtn.disabled = true;
+        exportBtn.innerHTML = `
+            <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>逐个导出中...</span>
+        `;
+
+        for (const dramaId of selectedIds) {
+            try {
+                const response = await fetch(`${API_BASE}/dramas/${encodeURIComponent(dramaId)}/export`);
+                if (!response.ok) {
+                    throw new Error('导出失败');
+                }
+
+                const blob = await response.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+                const normalMatch = disposition.match(/filename="?([^";]+)"?/i);
+                let filename = `${currentCustomerName || currentCustomerCode}_${dramaId}.xlsx`;
+                if (utf8Match && utf8Match[1]) {
+                    filename = decodeURIComponent(utf8Match[1]);
+                } else if (normalMatch && normalMatch[1]) {
+                    filename = normalMatch[1];
+                }
+                a.download = filename;
+
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(downloadUrl);
+                document.body.removeChild(a);
+
+                successCount += 1;
+            } catch (_err) {
+                failedIds.push(dramaId);
+            }
+        }
+
+        if (failedIds.length === 0) {
+            showSuccess(`成功导出 ${successCount} 个剧集文件`);
+        } else {
+            showWarning(`成功 ${successCount} 个，失败 ${failedIds.length} 个（ID: ${failedIds.join(', ')}）`);
+        }
+    } catch (error) {
+        showError('导出失败：' + error.message);
+    } finally {
+        exportBtn.disabled = false;
+        exportBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" x2="12" y1="15" y2="3"/>
+            </svg>
+            <span id="customer-drama-export-btn-text">逐个导出选中剧头</span>
+        `;
     }
 }

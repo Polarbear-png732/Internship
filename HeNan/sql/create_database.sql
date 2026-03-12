@@ -67,7 +67,6 @@ CREATE TABLE copyright_content (
     cooperation_mode VARCHAR(100) DEFAULT NULL COMMENT '合作方式',
     production_region VARCHAR(200) DEFAULT NULL COMMENT '制作地区',
     language VARCHAR(100) DEFAULT NULL COMMENT '语言',
-    language_henan VARCHAR(100) DEFAULT NULL COMMENT '语言-河南标准',
     country VARCHAR(100) DEFAULT NULL COMMENT '国别',
     director VARCHAR(500) DEFAULT NULL COMMENT '导演',
     screenwriter VARCHAR(500) DEFAULT NULL COMMENT '编剧',

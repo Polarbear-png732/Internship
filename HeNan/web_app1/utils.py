@@ -146,17 +146,20 @@ def _normalize_operator_text(value: str) -> str:
 
 
 def get_customer_codes_by_operator(operator_name: str, enabled_only: bool = True) -> List[str]:
-    """根据版权行中的运营商名称匹配目标客户代码（支持多值分隔）。"""
+    """根据运营商名称匹配单个目标客户代码（不支持多值分隔）。"""
     raw_text = str(operator_name or '').strip()
     if not raw_text:
         return []
 
-    parts = re.split(r'[,，;；、|/]+', raw_text)
-    tokens = [_normalize_operator_text(part) for part in parts if _normalize_operator_text(part)]
-    if not tokens:
+    # 运营商仅允许单值；出现分隔符视为非法输入。
+    if re.search(r'[,，;；、|/]+', raw_text):
         return []
 
-    matched_codes = []
+    token = _normalize_operator_text(raw_text)
+    if not token:
+        return []
+
+    matched_codes: List[str] = []
     for customer_code, cfg in CUSTOMER_CONFIGS.items():
         if enabled_only and not cfg.get('is_enabled', True):
             continue
@@ -164,15 +167,8 @@ def get_customer_codes_by_operator(operator_name: str, enabled_only: bool = True
         customer_name = _normalize_operator_text(cfg.get('name', ''))
         short_code = _normalize_operator_text(cfg.get('code', ''))
 
-        for token in tokens:
-            if (
-                token == customer_name
-                or token in customer_name
-                or customer_name in token
-                or (short_code and (token == short_code or short_code in token))
-            ):
-                matched_codes.append(customer_code)
-                break
+        if token == customer_name or (short_code and token == short_code):
+            matched_codes.append(customer_code)
 
     return matched_codes
 
@@ -355,6 +351,27 @@ def format_datetime(date_str, format_type='datetime'):
             return date_str
     
     return str(date_str)
+
+
+def normalize_date_to_ymd(date_str):
+    """将日期文本标准化为 YYYY-MM-DD，无法识别时返回原值。"""
+    if date_str is None:
+        return None
+
+    s = str(date_str).strip()
+    if not s:
+        return None
+
+    import re
+    digits = re.sub(r'[^\d]', '', s)
+    if len(digits) >= 8:
+        year = digits[:4]
+        month = digits[4:6]
+        day = digits[6:8]
+        return f"{year}-{month}-{day}"
+
+    # 无法解析为日期时保留原始输入，避免意外丢值
+    return s
 
 
 def get_genre(content_type, customer_code='henan_mobile'):
@@ -723,11 +740,7 @@ def build_drama_props(data, media_name, customer_code, scan_results=None, pinyin
             props[col] = c['value']
         elif 'source' in c:
             source_name = c.get('source')
-            # 版权起止时间不再引用主表默认值，未在客户授权中填写前保持为空
-            if source_name in ('copyright_start_date', 'copyright_end_date'):
-                v = ''
-            else:
-                v = data.get(source_name)
+            v = data.get(source_name)
             # 只有配置了 default 才使用默认值
             if (v is None or v == '') and 'default' in c:
                 v = c['default']
@@ -847,7 +860,7 @@ COLUMN_MAPPING = {
     '一级分类': 'category_level1', '二级分类': 'category_level2',
     '集数': 'episode_count', '单集时长': 'single_episode_duration', '总时长': 'total_duration',
     '出品年代': 'production_year', '首播日期': 'premiere_date', '制作地区': 'production_region', '出品地区': 'production_region',
-    '语言': 'language', '语言-河南标准': 'language_henan', '语言-河南': 'language_henan',
+    '语言': 'language',
     '国别': 'country', '国家': 'country', '导演': 'director', '编剧': 'screenwriter',
     '主演/嘉宾/主持人': 'cast_members', '主演\\嘉宾\\主持人': 'cast_members', '主演': 'cast_members',
     '作者': 'author',
@@ -879,7 +892,7 @@ INSERT_FIELDS = [
     'media_name', 'upstream_copyright', 'operator_name', 'category_level1', 'category_level2',
     'episode_count',
     'single_episode_duration', 'total_duration', 'production_year', 'premiere_date',
-    'production_region', 'language', 'language_henan', 'country', 'director', 
+    'production_region', 'language', 'country', 'director', 
     'screenwriter', 'cast_members', 'author', 'recommendation', 'synopsis', 
     'keywords', 'video_quality', 'license_number', 'rating', 'exclusive_status', 
     'copyright_start_date', 'copyright_end_date',

@@ -17,6 +17,49 @@ function _withNoCache(url) {
     return `${url}${sep}_t=${Date.now()}`;
 }
 
+function _clampScheduleDay(raw) {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 1;
+    return Math.max(1, Math.min(28, Math.floor(n)));
+}
+
+function _normalizeScheduleTime(raw) {
+    const text = String(raw || '').trim();
+    if (!/^\d{2}:\d{2}$/.test(text)) return '09:00';
+    return text;
+}
+
+function _updateNotifyCronExpression() {
+    const dayEl = document.getElementById('notify-schedule-day');
+    const timeEl = document.getElementById('notify-schedule-time');
+    const cronEl = document.getElementById('notify-cron-expression');
+    if (!dayEl || !timeEl || !cronEl) return;
+
+    const day = _clampScheduleDay(dayEl.value);
+    const timeValue = _normalizeScheduleTime(timeEl.value);
+    const [hh, mm] = timeValue.split(':');
+
+    dayEl.value = day;
+    timeEl.value = timeValue;
+    cronEl.value = `0 ${mm} ${hh} ${day} * *`;
+}
+
+function _bindNotifyScheduleEditors() {
+    const dayEl = document.getElementById('notify-schedule-day');
+    const timeEl = document.getElementById('notify-schedule-time');
+    if (!dayEl || !timeEl) return;
+    if (!dayEl.dataset.boundCron) {
+        dayEl.addEventListener('input', _updateNotifyCronExpression);
+        dayEl.addEventListener('change', _updateNotifyCronExpression);
+        dayEl.dataset.boundCron = '1';
+    }
+    if (!timeEl.dataset.boundCron) {
+        timeEl.addEventListener('input', _updateNotifyCronExpression);
+        timeEl.addEventListener('change', _updateNotifyCronExpression);
+        timeEl.dataset.boundCron = '1';
+    }
+}
+
 function _renderNotifyPreview(data) {
     const bodyEl = document.getElementById('notify-preview-body');
     if (!bodyEl) return;
@@ -74,6 +117,7 @@ async function loadNotifyConfig() {
     const password = document.getElementById('notify-smtp-password');
     const fromName = document.getElementById('notify-from-name');
     const recipients = document.getElementById('notify-recipients');
+    const scheduleDay = document.getElementById('notify-schedule-day');
     const scheduleTime = document.getElementById('notify-schedule-time');
 
     if (host) host.value = smtp.host || '';
@@ -86,7 +130,13 @@ async function loadNotifyConfig() {
     }
     if (fromName) fromName.value = smtp.from_name || '运营管理平台';
     if (recipients) recipients.value = (cfg.recipients || []).join('\n');
-    if (scheduleTime) scheduleTime.value = (cfg.schedule && cfg.schedule.time) ? cfg.schedule.time : '09:00';
+    if (scheduleDay) {
+        scheduleDay.value = _clampScheduleDay(cfg.schedule && cfg.schedule.day);
+    }
+    if (scheduleTime) scheduleTime.value = _normalizeScheduleTime((cfg.schedule && cfg.schedule.time) ? cfg.schedule.time : '09:00');
+
+    _bindNotifyScheduleEditors();
+    _updateNotifyCronExpression();
 }
 
 async function loadNotifyPreview() {
@@ -117,6 +167,15 @@ async function loadNotifyPageData() {
 
 async function saveNotifyConfig() {
     try {
+        const scheduleDayValue = _clampScheduleDay(document.getElementById('notify-schedule-day')?.value || 1);
+        const scheduleTimeValue = _normalizeScheduleTime(document.getElementById('notify-schedule-time')?.value || '09:00');
+
+        const scheduleDayEl = document.getElementById('notify-schedule-day');
+        const scheduleTimeEl = document.getElementById('notify-schedule-time');
+        if (scheduleDayEl) scheduleDayEl.value = scheduleDayValue;
+        if (scheduleTimeEl) scheduleTimeEl.value = scheduleTimeValue;
+        _updateNotifyCronExpression();
+
         const payload = {
             enabled: true,
             smtp: {
@@ -129,8 +188,8 @@ async function saveNotifyConfig() {
             },
             recipients: _getNotifyRecipientsFromInput(),
             schedule: {
-                day: 1,
-                time: document.getElementById('notify-schedule-time')?.value || '09:00',
+                day: scheduleDayValue,
+                time: scheduleTimeValue,
             },
             rule: {
                 months_before_expiry: 1,
@@ -169,16 +228,3 @@ async function sendNotifyTestEmail() {
     }
 }
 
-async function runNotifyNow() {
-    try {
-        const response = await fetch(`${API_BASE}/notify/run?force=true`, { method: 'POST' });
-        const result = await response.json();
-        if (result.code !== 200) {
-            throw new Error(result.message || '执行失败');
-        }
-        showSuccess(result.message || '执行完成');
-        await Promise.all([loadNotifyPreview(), loadNotifyStatus()]);
-    } catch (error) {
-        showError(error.message || '执行失败');
-    }
-}

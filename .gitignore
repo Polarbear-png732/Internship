@@ -51,6 +51,7 @@ build/
 # 只保留以下文件夹
 HeNan/*
 !HeNan/web_app1/
+!HeNan/operation_management/
 !HeNan/sql/
 !HeNan/scripts/
 !HeNan/.gitignore
@@ -62,4 +63,12 @@ HeNan/web_app1/temp/
 HeNan/web_app1/*.pyc
 HeNan/web_app1/notify_config.json
 HeNan/web_app1/runtime/
+
+# HeNan/operation_management/web_app1 中需要忽略的内容
+HeNan/operation_management/web_app1/__pycache__/
+HeNan/operation_management/web_app1/**/__pycache__/
+HeNan/operation_management/web_app1/temp/
+HeNan/operation_management/web_app1/*.pyc
+HeNan/operation_management/web_app1/notify_config.json
+HeNan/operation_management/web_app1/runtime/
 

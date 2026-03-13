@@ -12,8 +12,9 @@
  * - 需优先于其他业务脚本加载
  */
 
-// API基础URL
-const API_BASE = '/api';
+// API基础URL（支持子路径部署）
+const APP_BASE_PATH = window.APP_BASE_PATH || (window.location.pathname.startsWith('/operation_management') ? '/operation_management' : '');
+const API_BASE = `${APP_BASE_PATH}/api`;
 
 // 全局状态变量
 let pageSize = 10;

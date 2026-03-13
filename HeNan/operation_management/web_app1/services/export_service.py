@@ -19,12 +19,44 @@ from services.drama_service import (
 class ExcelExportService:
     """Excel导出服务"""
 
+    INTEGER_TEXT_COLUMNS = {'单集时长（分）', '总时长（分）', '时长（分）', '集数'}
+
     @staticmethod
     def _to_text_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         """将DataFrame统一转换为文本导出，空值保持为空字符串。"""
         if df is None:
             return pd.DataFrame()
         return df.fillna('').astype(str)
+
+    @staticmethod
+    def _normalize_integer_text_columns(df: pd.DataFrame, columns: set) -> pd.DataFrame:
+        """将整数语义列中的 10.0 规范为文本 10，保留真实小数。"""
+        if df is None or df.empty or not columns:
+            return df
+
+        target_columns = [col for col in columns if col in df.columns]
+        if not target_columns:
+            return df
+
+        def normalize_cell(value):
+            if value is None:
+                return value
+            text = str(value).strip()
+            if text == '':
+                return value
+            try:
+                num = float(text)
+            except (TypeError, ValueError):
+                return value
+
+            if num.is_integer():
+                return str(int(num))
+            return text
+
+        for col in target_columns:
+            df[col] = df[col].map(normalize_cell)
+
+        return df
 
     @staticmethod
     def _clear_columns(sheet, headers_to_clear):
@@ -254,8 +286,12 @@ class ExcelExportService:
                     all_pictures.append(pic)
         
         # 创建DataFrame
-        drama_df = ExcelExportService._to_text_dataframe(pd.DataFrame(drama_list, columns=drama_columns))
-        episode_df = ExcelExportService._to_text_dataframe(pd.DataFrame(all_episodes, columns=episode_columns))
+        drama_df = pd.DataFrame(drama_list, columns=drama_columns)
+        episode_df = pd.DataFrame(all_episodes, columns=episode_columns)
+        drama_df = ExcelExportService._normalize_integer_text_columns(drama_df, ExcelExportService.INTEGER_TEXT_COLUMNS)
+        episode_df = ExcelExportService._normalize_integer_text_columns(episode_df, ExcelExportService.INTEGER_TEXT_COLUMNS)
+        drama_df = ExcelExportService._to_text_dataframe(drama_df)
+        episode_df = ExcelExportService._to_text_dataframe(episode_df)
         
         # 生成Excel
         output = BytesIO()
@@ -313,7 +349,9 @@ class ExcelExportService:
         if '剧头id' in drama_columns:
             header_dict['剧头id'] = None
         
-        header_df = ExcelExportService._to_text_dataframe(pd.DataFrame([header_dict], columns=drama_columns))
+        header_df = pd.DataFrame([header_dict], columns=drama_columns)
+        header_df = ExcelExportService._normalize_integer_text_columns(header_df, ExcelExportService.INTEGER_TEXT_COLUMNS)
+        header_df = ExcelExportService._to_text_dataframe(header_df)
         
         # 构建子集数据
         episode_list = []
@@ -335,7 +373,9 @@ class ExcelExportService:
             
             episode_list.append(ep_data)
         
-        subset_df = ExcelExportService._to_text_dataframe(pd.DataFrame(episode_list, columns=episode_columns))
+        subset_df = pd.DataFrame(episode_list, columns=episode_columns)
+        subset_df = ExcelExportService._normalize_integer_text_columns(subset_df, ExcelExportService.INTEGER_TEXT_COLUMNS)
+        subset_df = ExcelExportService._to_text_dataframe(subset_df)
         
         # 生成Excel
         output = BytesIO()

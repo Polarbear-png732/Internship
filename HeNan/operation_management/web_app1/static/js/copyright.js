@@ -360,20 +360,10 @@ function setCopyrightCopyMode(enabled) {
     const form = document.getElementById('add-copyright-form');
     if (!form) return;
 
-    const editableIds = new Set([
-        'copyright-operator-name',
-        'copyright-start-date',
-        'copyright-end-date'
-    ]);
-
     form.querySelectorAll('input, textarea, select').forEach((el) => {
-        const id = el.id || '';
-        if (id === 'copyright-edit-id') return;
-        if (!enabled) {
-            el.disabled = false;
-            return;
-        }
-        el.disabled = !editableIds.has(id);
+        if ((el.id || '') === 'copyright-edit-id') return;
+        // 复制模式下也允许全字段编辑，仅保留“新增”语义。
+        el.disabled = false;
     });
 }
 
@@ -454,7 +444,7 @@ function searchCopyrightContent() {
 function exportCopyrightData() {
     const filters = getCopyrightFilterParams();
     const query = buildCopyrightQuery(filters);
-    window.location.href = query ? `/api/copyright/export?${query}` : '/api/copyright/export';
+    window.location.href = query ? `${API_BASE}/copyright/export?${query}` : `${API_BASE}/copyright/export`;
 }
 
 function toggleCopyrightFilterPanel() {
@@ -665,7 +655,7 @@ async function editCopyrightContent(id) {
     }
 }
 
-// 复制版权方数据：仅允许修改运营商和版权起止时间，其他字段沿用原数据新增
+// 复制版权方数据：默认填充原数据，允许全字段编辑后新增
 async function copyCopyrightContent(id) {
     try {
         const response = await fetch(`${API_BASE}/copyright/${id}`);
@@ -688,7 +678,7 @@ async function copyCopyrightContent(id) {
             setCopyrightCopyMode(true);
 
             document.getElementById('add-copyright-modal').classList.remove('hidden');
-            showInfo('复制模式：请只修改运营商、版权开始时间、版权结束时间');
+            showInfo('复制模式：已填充原数据，可按需修改任意字段后新增');
         } else {
             showError('获取数据失败：' + result.message);
         }

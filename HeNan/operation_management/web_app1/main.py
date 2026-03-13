@@ -8,8 +8,10 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Scope, Receive, Send
 from pathlib import Path
 from contextlib import asynccontextmanager
+import os
 
 from routers import customers, dramas, episodes, copyright, scan_result, notify
 from services.notify_service import start_notify_scheduler, stop_notify_scheduler
@@ -30,7 +32,36 @@ async def lifespan(app: FastAPI):
         stop_notify_scheduler()
 
 
-app = FastAPI(title="运营管理平台", description="剧集信息管理系统", lifespan=lifespan)
+_root_path = os.getenv("APP_ROOT_PATH", "").strip()
+if _root_path and not _root_path.startswith("/"):
+    _root_path = "/" + _root_path
+_root_path = _root_path.rstrip("/")
+
+app = FastAPI(
+    title="运营管理平台",
+    description="剧集信息管理系统",
+    lifespan=lifespan,
+    root_path=_root_path
+)
+
+
+class OperationManagementPrefixMiddleware:
+    """兼容直接访问 /operation_management 前缀路径。"""
+
+    def __init__(self, app: ASGIApp, prefix: str = "/operation_management"):
+        self.app = app
+        self.prefix = prefix.rstrip("/")
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") in {"http", "websocket"}:
+            path = scope.get("path", "")
+            if path == self.prefix or path.startswith(self.prefix + "/"):
+                rewritten_scope = dict(scope)
+                stripped = path[len(self.prefix):] or "/"
+                rewritten_scope["path"] = stripped
+                scope = rewritten_scope
+
+        await self.app(scope, receive, send)
 
 
 # ============================================================
@@ -101,6 +132,9 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # 配置CORS
+app.add_middleware(OperationManagementPrefixMiddleware, prefix="/operation_management")
+
+# 配置CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -123,6 +157,8 @@ app.include_router(notify.router)
 
 
 @app.get("/")
+@app.get("/operation_management")
+@app.get("/operation_management/")
 async def read_root():
     """返回首页"""
     return FileResponse(str(BASE_DIR / "index.html"))

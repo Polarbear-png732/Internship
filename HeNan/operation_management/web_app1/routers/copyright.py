@@ -391,6 +391,23 @@ def download_import_template():
                     'input_title': '日期填写格式',
                     'input_message': '请按 2026-03-02 填写（例如：2026-03-02）'
                 })
+
+        # 在必填字段添加批注与输入提示
+        required_hints = {
+            '介质名称': '必填',
+            '运营商': '必填',
+            '集数': '必填',
+        }
+        for required_col, hint in required_hints.items():
+            if required_col in columns:
+                col_idx = columns.index(required_col)
+                worksheet.write_comment(0, col_idx, hint)
+                # 输入提示：选中单元格时自动显示
+                worksheet.data_validation(1, col_idx, 9999, col_idx, {
+                    'validate': 'any',
+                    'input_title': f'{required_col}（必填）',
+                    'input_message': hint
+                })
         
         # 设置首行高度
         worksheet.set_row(0, 30)
@@ -420,7 +437,7 @@ def download_import_template():
         guide_sheet.write('A5', '2. 仅填写模板中的字段；模板外字段会被忽略。', text_format)
         guide_sheet.write('A6', '3. 运营商请填写单个省份名称（例如：河南移动 / 山东移动 / 甘肃移动 / 江西移动）。', text_format)
         guide_sheet.write('A7', '4. 导入时系统读取第一个工作表（版权方数据模板），本说明页不会影响导入。', text_format)
-    
+        guide_sheet.write('A8', '5. 介质名称，运营商，集数为必填字段。', text_format)
     output.seek(0)
     filename_encoded = quote('版权方数据导入模板.xlsx')
     

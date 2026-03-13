@@ -19,14 +19,329 @@ let backfillTaskState = {
     taskId: null,
     pollTimer: null
 };
+let copyrightFilterOptionsCache = null;
+let copyrightFilterSuggestInitialized = false;
+let copyrightFilterGlobalClickBound = false;
+
+const copyrightFilterSuggestConfig = [
+    { id: 'copyright-filter-media-name', field: 'media_name' },
+    { id: 'copyright-filter-upstream', field: 'upstream_copyright' },
+    { id: 'copyright-filter-category1', field: 'category_level1' },
+    { id: 'copyright-filter-operator', field: 'operator_name' }
+];
+
+const copyrightFilterFieldState = {};
+
+function splitMultiFilterValues(raw) {
+    const parts = String(raw || '').split(/[|｜,，;；、\n]+/);
+    const values = [];
+    const seen = new Set();
+    parts.forEach((part) => {
+        const value = String(part || '').trim();
+        if (!value) return;
+        const key = value.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        values.push(value);
+    });
+    return values;
+}
+
+function getCurrentTypingToken(raw) {
+    const text = String(raw || '');
+    const trailingSeparator = /[|｜,，;；、\n]\s*$/.test(text);
+    if (trailingSeparator) return '';
+    const chunks = text.split(/[|｜,，;；、\n]+/);
+    return String(chunks[chunks.length - 1] || '').trim();
+}
+
+function setMultiFilterInputValues(inputEl, values) {
+    inputEl.value = (values || []).join(' | ');
+}
+
+function addSelectedFilterValue(fieldState, value) {
+    const text = String(value || '').trim();
+    if (!text) return false;
+    const exists = fieldState.selectedValues.some(v => v.toLowerCase() === text.toLowerCase());
+    if (exists) return false;
+    fieldState.selectedValues.push(text);
+    return true;
+}
+
+function removeSelectedFilterValue(fieldState, value) {
+    const key = String(value || '').trim().toLowerCase();
+    fieldState.selectedValues = fieldState.selectedValues.filter(v => v.toLowerCase() !== key);
+}
+
+function commitCurrentInputToken(fieldState) {
+    const typing = String(fieldState.inputEl.value || '').trim();
+    if (!typing) return false;
+
+    let candidate = typing;
+    const lowerTyping = typing.toLowerCase();
+    const exact = fieldState.options.find(item => String(item || '').trim().toLowerCase() === lowerTyping);
+    if (exact) {
+        candidate = String(exact).trim();
+    } else {
+        const partial = fieldState.options.find(item => String(item || '').trim().toLowerCase().includes(lowerTyping));
+        if (partial) candidate = String(partial).trim();
+    }
+
+    const added = addSelectedFilterValue(fieldState, candidate);
+    fieldState.inputEl.value = '';
+    return added;
+}
+
+async function fetchCopyrightFilterOptions() {
+    if (copyrightFilterOptionsCache) return copyrightFilterOptionsCache;
+    try {
+        const resp = await fetch(`${API_BASE}/copyright/filter-options?limit=300`);
+        const result = await resp.json();
+        if (result.code === 200 && result.data) {
+            copyrightFilterOptionsCache = result.data;
+            return copyrightFilterOptionsCache;
+        }
+    } catch (error) {
+        console.warn('加载版权筛选候选项失败:', error);
+    }
+    copyrightFilterOptionsCache = {
+        media_name: [],
+        upstream_copyright: [],
+        category_level1: [],
+        operator_name: []
+    };
+    return copyrightFilterOptionsCache;
+}
+
+function getFilteredSuggestions(fieldState) {
+    const selectedSet = new Set(fieldState.selectedValues.map(v => v.toLowerCase()));
+    const typing = String(fieldState.inputEl.value || '').trim().toLowerCase();
+    return (fieldState.options || []).filter((item) => {
+        const text = String(item || '').trim();
+        if (!text) return false;
+        if (selectedSet.has(text.toLowerCase())) return false;
+        if (!typing) return true;
+        return text.toLowerCase().includes(typing);
+    }).slice(0, 20);
+}
+
+function renderSelectedChips(fieldState) {
+    const container = fieldState.chipsEl;
+    if (!container) return;
+    if (!fieldState.selectedValues.length) {
+        container.innerHTML = '<span class="text-xs text-slate-400">未选择</span>';
+        return;
+    }
+    container.innerHTML = fieldState.selectedValues.map((value) => (
+        `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs">
+            ${value}
+            <button type="button" class="text-blue-500 hover:text-blue-700" data-chip-remove="${String(value).replace(/"/g, '&quot;')}">x</button>
+        </span>`
+    )).join('');
+
+    container.querySelectorAll('button[data-chip-remove]').forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            removeSelectedFilterValue(fieldState, btn.getAttribute('data-chip-remove') || '');
+            renderSelectedChips(fieldState);
+            renderFilterSuggestionList(fieldState);
+        });
+    });
+}
+
+function renderFilterSuggestionList(fieldState) {
+    const dropdownEl = fieldState.dropdownEl;
+    const filtered = getFilteredSuggestions(fieldState);
+
+    if (filtered.length === 0) {
+        dropdownEl.classList.add('hidden');
+        dropdownEl.innerHTML = '<div class="px-3 py-2 text-xs text-slate-400">无可选项</div>';
+        return;
+    }
+
+    dropdownEl.innerHTML = filtered.map((item) => (
+        `<button type="button" class="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-blue-50" data-filter-option="${String(item).replace(/"/g, '&quot;')}">${item}</button>`
+    )).join('');
+
+    dropdownEl.querySelectorAll('button[data-filter-option]').forEach((btn) => {
+        btn.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+        });
+        btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const option = btn.getAttribute('data-filter-option') || '';
+            addSelectedFilterValue(fieldState, option);
+            renderSelectedChips(fieldState);
+            renderFilterSuggestionList(fieldState);
+            fieldState.inputEl.focus();
+        });
+    });
+
+    dropdownEl.classList.remove('hidden');
+}
+
+function ensureFieldExtraUi(fieldState) {
+    const inputWrap = fieldState.inputEl.closest('.filter-input-wrap') || fieldState.inputEl.parentElement;
+    if (!inputWrap) return;
+
+    const fieldContainer = inputWrap.parentElement || inputWrap;
+
+    let chipsEl = fieldContainer.querySelector('.copyright-filter-chip-box');
+    if (!chipsEl) {
+        chipsEl = inputWrap.querySelector('.copyright-filter-chip-box');
+    }
+    if (!chipsEl) {
+        chipsEl = document.createElement('div');
+        chipsEl.className = 'copyright-filter-chip-box mt-2 flex flex-wrap gap-1 min-h-[26px]';
+    }
+
+    if (chipsEl.parentElement !== fieldContainer) {
+        if (inputWrap.nextSibling) {
+            fieldContainer.insertBefore(chipsEl, inputWrap.nextSibling);
+        } else {
+            fieldContainer.appendChild(chipsEl);
+        }
+    }
+    fieldState.chipsEl = chipsEl;
+
+    inputWrap.style.position = 'relative';
+
+    let dropdownEl = inputWrap.querySelector('.copyright-filter-suggest-dropdown');
+    if (!dropdownEl) {
+        dropdownEl = document.createElement('div');
+        dropdownEl.className = 'copyright-filter-suggest-dropdown hidden absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-30 max-h-56 overflow-y-auto';
+        inputWrap.appendChild(dropdownEl);
+    }
+    fieldState.dropdownEl = dropdownEl;
+}
+
+function closeAllFilterDropdowns() {
+    Object.values(copyrightFilterFieldState).forEach((fieldState) => {
+        if (fieldState && fieldState.dropdownEl) {
+            fieldState.dropdownEl.classList.add('hidden');
+            fieldState.isOpen = false;
+        }
+    });
+}
+
+function bindCopyrightFilterSuggest(inputEl, fieldKey, optionsMap) {
+    if (!inputEl) return;
+    const fieldState = {
+        id: inputEl.id,
+        fieldKey,
+        inputEl,
+        options: optionsMap[fieldKey] || [],
+        selectedValues: splitMultiFilterValues(inputEl.value),
+        isOpen: false,
+        chipsEl: null,
+        dropdownEl: null
+    };
+    copyrightFilterFieldState[inputEl.id] = fieldState;
+
+    ensureFieldExtraUi(fieldState);
+    renderSelectedChips(fieldState);
+
+    const rerender = () => {
+        if (!fieldState.isOpen) return;
+        renderFilterSuggestionList(fieldState);
+    };
+    inputEl.addEventListener('focus', () => {
+        if (fieldState.isOpen) renderFilterSuggestionList(fieldState);
+    });
+    inputEl.addEventListener('input', rerender);
+
+    inputEl.addEventListener('keydown', (event) => {
+        if (event.key === '|' || event.key === '｜') {
+            const committed = commitCurrentInputToken(fieldState);
+            if (committed) {
+                event.preventDefault();
+                renderSelectedChips(fieldState);
+                renderFilterSuggestionList(fieldState);
+            }
+            return;
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+            const committed = commitCurrentInputToken(fieldState);
+            if (committed) {
+                event.preventDefault();
+                renderSelectedChips(fieldState);
+                renderFilterSuggestionList(fieldState);
+                return;
+            }
+        }
+        if (event.key === 'Escape') {
+            fieldState.dropdownEl.classList.add('hidden');
+            fieldState.isOpen = false;
+        }
+    });
+}
+
+async function toggleCopyrightFilterSuggestions(inputId) {
+    await initCopyrightFilterSuggesters();
+    const fieldState = copyrightFilterFieldState[inputId];
+    if (!fieldState || !fieldState.dropdownEl) return;
+
+    const nextOpen = !fieldState.isOpen;
+    closeAllFilterDropdowns();
+    fieldState.isOpen = nextOpen;
+
+    if (nextOpen) {
+        renderFilterSuggestionList(fieldState);
+        fieldState.inputEl.focus();
+    } else {
+        fieldState.dropdownEl.classList.add('hidden');
+    }
+}
+
+// 兼容内联 onclick 调用
+window.toggleCopyrightFilterSuggestions = toggleCopyrightFilterSuggestions;
+
+async function initCopyrightFilterSuggesters() {
+    if (copyrightFilterSuggestInitialized) return;
+    const optionsMap = await fetchCopyrightFilterOptions();
+    copyrightFilterSuggestConfig.forEach(({ id, field }) => {
+        const inputEl = document.getElementById(id);
+        bindCopyrightFilterSuggest(inputEl, field, optionsMap);
+    });
+
+    if (!copyrightFilterGlobalClickBound) {
+        document.addEventListener('click', (event) => {
+            if (event.target && event.target.closest && event.target.closest('.copyright-filter-toggle-btn')) return;
+            if (event.target && event.target.closest && event.target.closest('.copyright-filter-suggest-dropdown')) return;
+            if (event.target && event.target.closest && event.target.closest('.filter-input')) return;
+            closeAllFilterDropdowns();
+        });
+        copyrightFilterGlobalClickBound = true;
+    }
+
+    copyrightFilterSuggestInitialized = true;
+}
+
+function getFieldJoinedFilterValue(inputId) {
+    const fieldState = copyrightFilterFieldState[inputId];
+    if (!fieldState) {
+        return document.getElementById(inputId)?.value?.trim() || '';
+    }
+    // 提交尚未确认的输入词
+    if (String(fieldState.inputEl.value || '').trim()) {
+        const committed = commitCurrentInputToken(fieldState);
+        if (committed) {
+            renderSelectedChips(fieldState);
+        }
+    }
+    return fieldState.selectedValues.join(' | ');
+}
 
 function getCopyrightFilterParams() {
     return {
         keyword: document.getElementById('copyright-search-input')?.value?.trim() || '',
-        media_name: document.getElementById('copyright-filter-media-name')?.value?.trim() || '',
-        upstream_copyright: document.getElementById('copyright-filter-upstream')?.value?.trim() || '',
-        category_level1: document.getElementById('copyright-filter-category1')?.value?.trim() || '',
-        operator_name: document.getElementById('copyright-filter-operator')?.value?.trim() || ''
+        media_name: getFieldJoinedFilterValue('copyright-filter-media-name'),
+        upstream_copyright: getFieldJoinedFilterValue('copyright-filter-upstream'),
+        category_level1: getFieldJoinedFilterValue('copyright-filter-category1'),
+        operator_name: getFieldJoinedFilterValue('copyright-filter-operator')
     };
 }
 
@@ -146,6 +461,9 @@ function toggleCopyrightFilterPanel() {
     const panel = document.getElementById('copyright-filter-panel');
     if (!panel) return;
     panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+        initCopyrightFilterSuggesters();
+    }
 }
 
 function closeCopyrightFilterPanel() {
@@ -163,10 +481,24 @@ function resetCopyrightFilters() {
     if (upstream) upstream.value = '';
     if (category) category.value = '';
     if (operator) operator.value = '';
+
+    ['copyright-filter-media-name', 'copyright-filter-upstream', 'copyright-filter-category1', 'copyright-filter-operator'].forEach((id) => {
+        const fieldState = copyrightFilterFieldState[id];
+        if (!fieldState) return;
+        fieldState.selectedValues = [];
+        fieldState.inputEl.value = '';
+        renderSelectedChips(fieldState);
+        if (fieldState.dropdownEl) {
+            fieldState.dropdownEl.classList.add('hidden');
+        }
+        fieldState.isOpen = false;
+    });
+
     loadCopyrightList(1);
 }
 
 function applyCopyrightFilters() {
+    closeAllFilterDropdowns();
     loadCopyrightList(1);
 }
 

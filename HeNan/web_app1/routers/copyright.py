@@ -10,6 +10,7 @@ import pymysql
 import pandas as pd
 import json
 import time
+import re
 from decimal import Decimal
 from io import BytesIO
 from urllib.parse import quote
@@ -20,7 +21,7 @@ from database import get_db
 from utils import (
     get_pinyin_abbr, get_content_dir, get_product_category,
     get_image_url, get_media_url, format_duration, format_datetime, get_genre,
-    get_customer_codes_by_operator, normalize_date_to_ymd
+    get_customer_codes_by_operator, normalize_date_to_ymd, normalize_date_to_ymd_unpadded
 )
 from config import COPYRIGHT_FIELDS, CUSTOMER_CONFIGS
 from models import CopyrightCreate, CopyrightUpdate, CopyrightResponse
@@ -110,24 +111,100 @@ def _build_copyright_filters(
     conditions: List[str] = []
     params: List[Any] = []
 
+    def _split_multi_values(raw: Optional[str]) -> List[str]:
+        if raw is None:
+            return []
+        values: List[str] = []
+        seen = set()
+        for part in re.split(r'[|｜,，;；、\n]+', str(raw)):
+            value = part.strip()
+            if not value:
+                continue
+            key = value.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            values.append(value)
+        return values
+
+    def _append_multi_like(column: str, raw: Optional[str]):
+        values = _split_multi_values(raw)
+        if not values:
+            return
+        if len(values) == 1:
+            conditions.append(f"{column} LIKE %s")
+            params.append(f"%{values[0]}%")
+            return
+        conditions.append("(" + " OR ".join([f"{column} LIKE %s"] * len(values)) + ")")
+        params.extend([f"%{v}%" for v in values])
+
     if keyword:
         conditions.append("media_name LIKE %s")
         params.append(f"%{keyword.strip()}%")
-    if media_name:
-        conditions.append("media_name LIKE %s")
-        params.append(f"%{media_name.strip()}%")
-    if upstream_copyright:
-        conditions.append("upstream_copyright LIKE %s")
-        params.append(f"%{upstream_copyright.strip()}%")
-    if category_level1:
-        conditions.append("category_level1 LIKE %s")
-        params.append(f"%{category_level1.strip()}%")
-    if operator_name:
-        conditions.append("operator_name LIKE %s")
-        params.append(f"%{operator_name.strip()}%")
+    _append_multi_like("media_name", media_name)
+    _append_multi_like("upstream_copyright", upstream_copyright)
+    _append_multi_like("category_level1", category_level1)
+    _append_multi_like("operator_name", operator_name)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     return where_clause, params
+
+
+@router.get("/filter-options")
+def get_copyright_filter_options(
+    limit: int = Query(200, ge=20, le=1000, description="每个字段最多返回条数")
+):
+    """获取版权筛选字段的候选值（用于前端下拉建议）。"""
+    field_map = {
+        'media_name': 'media_name',
+        'upstream_copyright': 'upstream_copyright',
+        'category_level1': 'category_level1',
+        'operator_name': 'operator_name',
+    }
+
+    data: Dict[str, List[str]] = {
+        'media_name': [],
+        'upstream_copyright': [],
+        'category_level1': [],
+        'operator_name': [],
+    }
+
+    with get_db() as conn:
+        cursor = conn.cursor(pymysql.cursors.DictCursor)
+        for key, column in field_map.items():
+            cursor.execute(
+                f"""
+                SELECT DISTINCT {column} AS value
+                FROM copyright_content
+                WHERE {column} IS NOT NULL
+                  AND TRIM({column}) <> ''
+                ORDER BY {column} ASC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            values = []
+            for row in cursor.fetchall():
+                value = str(row.get('value') or '').strip()
+                if value:
+                    values.append(value)
+            data[key] = values
+
+    return {
+        'code': 200,
+        'message': 'success',
+        'data': data,
+    }
+
+
+def _normalize_copyright_item_dates(item: Dict[str, Any]) -> Dict[str, Any]:
+    """统一版权列表日期输出格式。"""
+    if not item:
+        return item
+    item['copyright_start_date'] = normalize_date_to_ymd(item.get('copyright_start_date'))
+    item['copyright_end_date'] = normalize_date_to_ymd(item.get('copyright_end_date'))
+    item['premiere_date'] = normalize_date_to_ymd_unpadded(item.get('premiere_date'))
+    return item
 
 
 # ============================================================
@@ -173,6 +250,7 @@ def get_copyright_list(
         cursor.execute(f"SELECT * FROM copyright_content {where_clause} ORDER BY id DESC LIMIT %s OFFSET %s",
                       params + [page_size, offset])
         items = cursor.fetchall()
+        items = [_normalize_copyright_item_dates(item) for item in items]
         
         result = {
             "code": 200, "message": "success",
@@ -218,6 +296,7 @@ def get_copyright_selection_by_customer(
             params + [limit]
         )
         items = cursor.fetchall()
+        items = [_normalize_copyright_item_dates(item) for item in items]
 
     return {
         "code": 200,
@@ -337,7 +416,7 @@ def download_import_template():
 
         guide_sheet.set_column('A:A', 80)
         guide_sheet.write('A1', '版权导入模板填写说明', title_format)
-        guide_sheet.write('A3', '1. 日期相关字段（首播日期、版权开始时间、版权结束时间）请统一填写为：2026-03-02', highlight_format)
+        guide_sheet.write('A3', '1. 日期相关字段（首播日期、版权开始时间、版权结束时间）请统一填写为这个格式：2026-03-02', highlight_format)
         guide_sheet.write('A5', '2. 仅填写模板中的字段；模板外字段会被忽略。', text_format)
         guide_sheet.write('A6', '3. 运营商请填写单个省份名称（例如：河南移动 / 山东移动 / 甘肃移动 / 江西移动）。', text_format)
         guide_sheet.write('A7', '4. 导入时系统读取第一个工作表（版权方数据模板），本说明页不会影响导入。', text_format)
@@ -524,6 +603,7 @@ def get_copyright_detail(item_id: int):
         item = cursor.fetchone()
         if not item:
             raise HTTPException(status_code=404, detail="数据不存在")
+        item = _normalize_copyright_item_dates(item)
         return {"code": 200, "message": "success", "data": item}
 
 
@@ -544,8 +624,14 @@ def create_copyright(data: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail="集数为必填项，且必须大于0")
     data['episode_count'] = episode_count
 
-    if 'premiere_date' in data:
-        data['premiere_date'] = normalize_date_to_ymd(data.get('premiere_date'))
+    # 仅版权表写入做时间格式规范；剧头/子集仍使用原始输入值
+    copyright_data = dict(data)
+    if 'premiere_date' in copyright_data:
+        copyright_data['premiere_date'] = normalize_date_to_ymd_unpadded(copyright_data.get('premiere_date'))
+    if 'copyright_start_date' in copyright_data:
+        copyright_data['copyright_start_date'] = normalize_date_to_ymd(copyright_data.get('copyright_start_date'))
+    if 'copyright_end_date' in copyright_data:
+        copyright_data['copyright_end_date'] = normalize_date_to_ymd(copyright_data.get('copyright_end_date'))
     
     media_name = data['media_name']
     
@@ -568,9 +654,9 @@ def create_copyright(data: Dict[str, Any] = Body(...)):
             insert_values = [json.dumps(drama_ids)]
             
             for field in COPYRIGHT_FIELDS:
-                if field in data and data[field] is not None:
+                if field in copyright_data and copyright_data[field] is not None:
                     insert_fields.append(field)
-                    insert_values.append(data[field])
+                    insert_values.append(copyright_data[field])
             
             cursor.execute(
                 f"INSERT INTO copyright_content ({', '.join(insert_fields)}) VALUES ({', '.join(['%s'] * len(insert_fields))})",
@@ -609,8 +695,14 @@ def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
     with get_db() as conn:
         cursor = conn.cursor(pymysql.cursors.DictCursor)
 
-        if 'premiere_date' in data:
-            data['premiere_date'] = normalize_date_to_ymd(data.get('premiere_date'))
+        # 仅版权表写入做时间格式规范；剧头/子集仍使用原始输入值
+        copyright_data = dict(data)
+        if 'premiere_date' in copyright_data:
+            copyright_data['premiere_date'] = normalize_date_to_ymd_unpadded(copyright_data.get('premiere_date'))
+        if 'copyright_start_date' in copyright_data:
+            copyright_data['copyright_start_date'] = normalize_date_to_ymd(copyright_data.get('copyright_start_date'))
+        if 'copyright_end_date' in copyright_data:
+            copyright_data['copyright_end_date'] = normalize_date_to_ymd(copyright_data.get('copyright_end_date'))
         
         # 获取原数据
         cursor.execute("SELECT * FROM copyright_content WHERE id = %s", (item_id,))
@@ -626,9 +718,9 @@ def update_copyright(item_id: int, data: Dict[str, Any] = Body(...)):
             # 1. 更新版权方表
             update_parts, update_values = [], []
             for field in COPYRIGHT_FIELDS:
-                if field in data:
+                if field in copyright_data:
                     update_parts.append(f"{field} = %s")
-                    update_values.append(data[field])
+                    update_values.append(copyright_data[field])
             
             if update_parts:
                 update_values.append(item_id)

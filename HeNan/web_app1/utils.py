@@ -304,7 +304,6 @@ def format_datetime(date_str, format_type='datetime'):
     
     # 紧凑格式：YYYYMMDDHHMMSS（14位数字）
     if format_type == 'datetime_compact':
-        import re
         # 移除非数字字符，提取日期时间部分
         digits = re.sub(r'[^\d]', '', date_str)
         
@@ -332,7 +331,6 @@ def format_datetime(date_str, format_type='datetime'):
     
     # 紧凑日期格式：YYYYMMDD（8位数字）
     if format_type == 'date_compact':
-        import re
         digits = re.sub(r'[^\d]', '', date_str)
         if len(digits) >= 8:
             return digits[:8]  # 只取年月日部分
@@ -342,11 +340,29 @@ def format_datetime(date_str, format_type='datetime'):
     if isinstance(date_str, str):
         if len(date_str) >= 19 and ':' in date_str:
             return date_str
-        # 如果只有日期部分，添加时间
-        if format_type == 'datetime_full' and len(date_str) >= 10:
-            if ' ' not in date_str:
+        # 如果只有日期部分，添加时间（支持 2024-9-22 / 2024/9/22）
+        if format_type == 'datetime_full':
+            date_match = re.match(r'^(\d{4})\D(\d{1,2})\D(\d{1,2})', date_str)
+            if date_match:
+                y = int(date_match.group(1))
+                m = int(date_match.group(2))
+                d = int(date_match.group(3))
+                if 1 <= m <= 12 and 1 <= d <= 31:
+                    if len(date_str) >= 19 and ':' in date_str:
+                        return f"{y:04d}-{m:02d}-{d:02d}" + date_str[10:]
+                    return f"{y:04d}-{m:02d}-{d:02d} 00:00:00"
+            # 兼容纯数字紧凑日期：20260301 -> 2026-03-01 00:00:00
+            digits = re.sub(r'[^\d]', '', date_str)
+            if len(digits) >= 8:
+                y = int(digits[:4])
+                m = int(digits[4:6])
+                d = int(digits[6:8])
+                if 1 <= m <= 12 and 1 <= d <= 31:
+                    return f"{y:04d}-{m:02d}-{d:02d} 00:00:00"
+            if len(date_str) >= 10 and ' ' not in date_str:
                 return date_str + ' 00:00:00'
-            return date_str
+            if len(date_str) >= 10:
+                return date_str
         if len(date_str) >= 10:
             return date_str
     
@@ -362,16 +378,43 @@ def normalize_date_to_ymd(date_str):
     if not s:
         return None
 
-    import re
+    # 优先处理常见格式（支持 2024-9-22 / 2024/9/22 / 2024-09-22 00:00:00）
+    match = re.match(r'^(\d{4})\D(\d{1,2})\D(\d{1,2})', s)
+    if match:
+        year = int(match.group(1))
+        month = int(match.group(2))
+        day = int(match.group(3))
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{year:04d}-{month:02d}-{day:02d}"
+
+    # 兜底处理：提取数字，兼容 20240922 或带时间后缀的文本
     digits = re.sub(r'[^\d]', '', s)
     if len(digits) >= 8:
-        year = digits[:4]
-        month = digits[4:6]
-        day = digits[6:8]
-        return f"{year}-{month}-{day}"
+        year = int(digits[:4])
+        month = int(digits[4:6])
+        day = int(digits[6:8])
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{year:04d}-{month:02d}-{day:02d}"
 
     # 无法解析为日期时保留原始输入，避免意外丢值
     return s
+
+
+def normalize_date_to_ymd_unpadded(date_str):
+    """将日期文本标准化为 YYYY-M-D（月份和日期不补零），无法识别时返回原值。"""
+    normalized = normalize_date_to_ymd(date_str)
+    if normalized is None:
+        return None
+
+    s = str(normalized).strip()
+    match = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', s)
+    if not match:
+        return s
+
+    year = int(match.group(1))
+    month = int(match.group(2))
+    day = int(match.group(3))
+    return f"{year}-{month}-{day}"
 
 
 def get_genre(content_type, customer_code='henan_mobile'):

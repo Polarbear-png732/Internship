@@ -22,7 +22,7 @@ from utils import (
     clean_numeric, clean_string, build_drama_props, build_episodes,
     extract_episode_number, find_scan_match, build_media_name_variants,
     COLUMN_MAPPING, NUMERIC_FIELDS, INSERT_FIELDS, get_customer_codes_by_operator,
-    normalize_date_to_ymd
+    normalize_date_to_ymd, normalize_date_to_ymd_unpadded
 )
 
 
@@ -797,7 +797,6 @@ class ExcelImportService:
                     cleaned = {f: (clean_numeric(row_dict.get(f), NUMERIC_FIELDS[f]) if f in NUMERIC_FIELDS else clean_string(row_dict.get(f))) for f in INSERT_FIELDS if f != 'drama_ids'}
                     cleaned['media_name'] = media_name
                     cleaned['operator_name'] = operator_name
-                    cleaned['premiere_date'] = normalize_date_to_ymd(cleaned.get('premiere_date'))
                     episode_count = int(cleaned.get('episode_count') or 0)
 
                     # 按运营商映射为目标客户生成剧头
@@ -847,7 +846,11 @@ class ExcelImportService:
                 copyright_insert_values = []
                 for row_key, cleaned in copyright_values:
                     drama_ids = drama_id_map.get(row_key, {})
-                    values = tuple(cleaned.get(f) if f != 'drama_ids' else json.dumps(drama_ids) for f in INSERT_FIELDS)
+                    normalized_copyright = dict(cleaned)
+                    normalized_copyright['premiere_date'] = normalize_date_to_ymd_unpadded(normalized_copyright.get('premiere_date'))
+                    normalized_copyright['copyright_start_date'] = normalize_date_to_ymd(normalized_copyright.get('copyright_start_date'))
+                    normalized_copyright['copyright_end_date'] = normalize_date_to_ymd(normalized_copyright.get('copyright_end_date'))
+                    values = tuple(normalized_copyright.get(f) if f != 'drama_ids' else json.dumps(drama_ids) for f in INSERT_FIELDS)
                     copyright_insert_values.append(values)
                 
                 placeholders = ','.join(['%s'] * len(INSERT_FIELDS))

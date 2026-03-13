@@ -310,7 +310,7 @@ CUSTOMER_CONFIGS = {
     'xinjiang_telecom': {
         'name': '新疆电信',
         'code': 'xjdx',
-        'is_enabled': True,
+        'is_enabled': False,
         'export_sheets': ['剧头', '子集'],
         
         'drama_columns': [
